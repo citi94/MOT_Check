@@ -1,0 +1,38 @@
+# netlify.toml
+
+[build]
+  command = "npm run build"
+  publish = "build"
+  functions = "netlify/functions"
+
+# Define environment variables for different contexts
+[context.production.environment]
+  NODE_ENV = "production"
+
+# Redirect all API requests to Netlify Functions
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Redirect all other requests to index.html for client-side routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Define headers for all pages
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer-when-downgrade"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://history.mot.api.gov.uk https://login.microsoftonline.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+
+# Define headers for service worker
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "max-age=0, no-cache, no-store, must-revalidate"
