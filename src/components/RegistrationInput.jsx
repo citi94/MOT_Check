@@ -2,15 +2,42 @@ import React, { useState } from 'react';
 
 const RegistrationInput = ({ onSubmit }) => {
   const [registration, setRegistration] = useState('');
+  const [error, setError] = useState('');
+
+  // UK vehicle registration validator
+  const isValidUKRegistration = (reg) => {
+    // Remove spaces and convert to uppercase
+    const formatted = reg.replace(/\s+/g, '').toUpperCase();
+    
+    // Common UK registration patterns
+    // Current format: 2 letters, 2 numbers, 2 letters (e.g., AB12CDE)
+    // Older format: 1 letter, 1-3 numbers, 1-3 letters (e.g., A123BCD)
+    // Northern Ireland: 1-3 letters, 1-4 numbers (e.g., ABC1234)
+    // Diplomatic: format starting with 'D' or 'X' (e.g., D123)
+    // Also handles personalized plates
+    
+    // Basic length check (most UK registrations are between 2-7 characters)
+    if (formatted.length < 2 || formatted.length > 8) {
+      return false;
+    }
+    
+    // Basic character check (only letters and numbers allowed)
+    if (!/^[A-Z0-9]+$/.test(formatted)) {
+      return false;
+    }
+    
+    return true;
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setError('');
     
     // Format registration - remove spaces, convert to uppercase
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
     
-    if (formattedReg.length < 2) {
-      alert('Please enter a valid registration number');
+    if (!isValidUKRegistration(formattedReg)) {
+      setError('Please enter a valid UK registration number');
       return;
     }
     
@@ -39,6 +66,11 @@ const RegistrationInput = ({ onSubmit }) => {
             Search
           </button>
         </div>
+        {error && (
+          <p className="text-xs text-red-500 mt-1">
+            {error}
+          </p>
+        )}
         <p className="text-xs text-gray-500">
           Enter a UK vehicle registration to check its MOT history
         </p>

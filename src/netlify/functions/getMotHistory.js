@@ -15,6 +15,18 @@ let cachedToken = null;
 let tokenExpiry = null;
 
 /**
+ * Formats a UK vehicle registration to match the API's expectations
+ * @param {string} registration - The raw registration input
+ * @returns {string} - Properly formatted registration
+ */
+function formatRegistration(registration) {
+  if (!registration) return '';
+  
+  // Remove all spaces and convert to uppercase
+  return registration.replace(/\s+/g, '').toUpperCase();
+}
+
+/**
  * Gets a valid access token, retrieving a new one if necessary
  */
 async function getAccessToken() {
@@ -86,53 +98,96 @@ exports.handler = async function(event, context) {
       };
     }
 
-    // Get access token
-    const token = await getAccessToken();
-
-    // Call MOT API
-    const response = await axios.get(
-      `${MOT_API_URL}/v1/trade/vehicles/registration/${registration}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-API-Key': API_KEY
-        }
-      }
-    );
-
-    // Return the data
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify(response.data)
-    };
-  } catch (error) {
-    console.error('Error in getMotHistory function:', error);
+    // Format the registration for the API
+    const formattedRegistration = formatRegistration(registration);
     
-    // Handle API error responses
-    if (error.response) {
-      const statusCode = error.response.status;
-      const errorData = error.response.data;
-      
+    if (!formattedRegistration) {
       return {
-        statusCode,
+        statusCode: 400,
         headers,
-        body: JSON.stringify({
-          error: true,
-          message: errorData.errorMessage || 'Error from MOT API',
-          code: errorData.errorCode || 'UNKNOWN_ERROR',
-          requestId: errorData.requestId
+        body: JSON.stringify({ 
+          error: 'Invalid registration format' 
         })
       };
     }
 
-    // Handle other errors
+    // Get access token
+    const token = await getAccessToken();
+
+    // Call MOT API with proper error handling
+    try {
+      const response = await axios.get(
+        `${MOT_API_URL}/v1/trade/vehicles/registration/${formattedRegistration}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-API-Key': API_KEY
+          },
+          // Add timeout to prevent hanging requests
+          timeout: 10000
+        }
+      );
+
+      // Return the data
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(response.data)
+      };
+    } catch (apiError) {
+      // Handle specific API errors
+      console.error(`API error for ${formattedRegistration}:`, 
+        apiError.response?.data || apiError.message);
+      
+      // If this is a 404, the vehicle wasn't found - provide a friendlier message
+      if (apiError.response?.status === 404) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            error: true,
+            message: `No vehicle found with registration ${formattedRegistration}`,
+            code: apiError.response?.data?.errorCode || 'NOT_FOUND'
+          })
+        };
+      }
+      
+      // For other API errors, return the details
+      if (apiError.response) {
+        return {
+          statusCode: apiError.response.status,
+          headers,
+          body: JSON.stringify({
+            error: true,
+            message: apiError.response.data?.errorMessage || 'Error from MOT API',
+            code: apiError.response.data?.errorCode || 'API_ERROR',
+            requestId: apiError.response.data?.requestId
+          })
+        };
+      }
+      
+      // If it's a timeout or other connection issue
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          error: true,
+          message: apiError.message || 'Failed to connect to MOT API',
+          code: 'CONNECTION_ERROR'
+        })
+      };
+    }
+  } catch (error) {
+    console.error('Error in getMotHistory function:', error);
+    
+    // Handle general errors
     return {
       statusCode: 500,
       headers,
       body: JSON.stringify({
         error: true,
-        message: error.message || 'Internal server error'
+        message: error.message || 'Internal server error',
+        code: 'SERVER_ERROR'
       })
     };
   }
