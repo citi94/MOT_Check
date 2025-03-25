@@ -11,7 +11,7 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const API_KEY = process.env.API_KEY;
 const SCOPE = process.env.SCOPE;
 
-// Cache for access token
+// Cache for access tokeen
 let cachedToken = null;
 let tokenExpiry = null;
 
