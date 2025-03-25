@@ -11,7 +11,7 @@
 
 # Redirect all API requests to Netlify Functions
 [[redirects]]
-  from = "/.netlify/functions/*"
+  from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
 

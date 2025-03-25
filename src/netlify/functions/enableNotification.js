@@ -1,12 +1,6 @@
 // netlify/functions/enableNotification.js
 
-const faunadb = require('faunadb');
-const q = faunadb.query;
-
-// Initialize FaunaDB client
-const client = new faunadb.Client({
-  secret: process.env.FAUNA_SECRET_KEY
-});
+const { connectToDatabase } = require('./utils/mongodb');
 
 exports.handler = async function(event, context) {
   // CORS headers
@@ -48,18 +42,14 @@ exports.handler = async function(event, context) {
     // Format the registration (remove spaces, uppercase)
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
 
+    // Connect to MongoDB
+    const db = await connectToDatabase();
+    const notificationsCollection = db.collection('notifications');
+    
     // Check if this registration is already being monitored
-    let existingRecord;
-    try {
-      existingRecord = await client.query(
-        q.Get(q.Match(q.Index('notification_by_registration'), formattedReg))
-      );
-    } catch (e) {
-      // Not found, which is expected if this is a new registration
-      if (e.name !== 'NotFound') {
-        throw e;
-      }
-    }
+    const existingRecord = await notificationsCollection.findOne({ 
+      registration: formattedReg 
+    });
 
     // If the registration is already being monitored, just return success
     if (existingRecord) {
@@ -74,17 +64,13 @@ exports.handler = async function(event, context) {
     }
 
     // Store the registration in the database
-    await client.query(
-      q.Create(q.Collection('notifications'), {
-        data: {
-          registration: formattedReg,
-          lastCheckedDate: new Date().toISOString(),
-          lastMotTestDate: null,
-          enabled: true,
-          createdAt: new Date().toISOString()
-        }
-      })
-    );
+    await notificationsCollection.insertOne({
+      registration: formattedReg,
+      lastCheckedDate: new Date().toISOString(),
+      lastMotTestDate: null,
+      enabled: true,
+      createdAt: new Date().toISOString()
+    });
 
     return {
       statusCode: 200,

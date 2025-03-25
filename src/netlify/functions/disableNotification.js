@@ -1,12 +1,6 @@
 // netlify/functions/disableNotification.js
 
-const faunadb = require('faunadb');
-const q = faunadb.query;
-
-// Initialize FaunaDB client
-const client = new faunadb.Client({
-  secret: process.env.FAUNA_SECRET_KEY
-});
+const { connectToDatabase } = require('./utils/mongodb');
 
 exports.handler = async function(event, context) {
   // CORS headers
@@ -48,31 +42,26 @@ exports.handler = async function(event, context) {
     // Format the registration (remove spaces, uppercase)
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
 
-    // Find the notification record
-    let existingRecord;
-    try {
-      existingRecord = await client.query(
-        q.Get(q.Match(q.Index('notification_by_registration'), formattedReg))
-      );
-    } catch (e) {
-      // Not found, which means there's nothing to disable
-      if (e.name === 'NotFound') {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({
-            error: true,
-            message: `No notifications found for ${formattedReg}`
-          })
-        };
-      }
-      throw e;
+    // Connect to MongoDB
+    const db = await connectToDatabase();
+    const notificationsCollection = db.collection('notifications');
+    
+    // Try to find and delete the notification
+    const result = await notificationsCollection.deleteOne({ 
+      registration: formattedReg 
+    });
+    
+    // Check if a document was actually deleted
+    if (result.deletedCount === 0) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({
+          error: true,
+          message: `No notifications found for ${formattedReg}`
+        })
+      };
     }
-
-    // Delete the notification from the database
-    await client.query(
-      q.Delete(existingRecord.ref)
-    );
 
     return {
       statusCode: 200,
