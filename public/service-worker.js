@@ -1,7 +1,7 @@
 // public/service-worker.js
 
 // Service worker version - increment when updating
-const VERSION = 'v1';
+const VERSION = 'v2';
 
 // Cache name
 const CACHE_NAME = `mot-app-cache-${VERSION}`;
@@ -11,8 +11,7 @@ const urlsToCache = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/favicon.ico',
-  '/static/js/bundle.js'
+  '/favicon.ico'
 ];
 
 // Install event - cache assets
@@ -49,13 +48,14 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch event - serve from cache if possible
+// Fetch event - serve from cache if possible, but don't cache API requests
 self.addEventListener('fetch', event => {
-  // Skip for API calls
-  if (event.request.url.includes('/api')) {
+  // Skip caching for API requests completely
+  if (event.request.url.includes('/api/')) {
     return;
   }
   
+  // For non-API requests, try to serve from cache first
   event.respondWith(
     caches.match(event.request)
       .then(response => {
@@ -68,8 +68,13 @@ self.addEventListener('fetch', event => {
         const fetchRequest = event.request.clone();
         
         return fetch(fetchRequest).then(response => {
-          // Check if we received a valid response
-          if (!response || response.status !== 200 || response.type !== 'basic') {
+          // Don't cache non-successful responses or non-GET requests
+          if (!response || response.status !== 200 || event.request.method !== 'GET') {
+            return response;
+          }
+          
+          // Skip caching for certain paths
+          if (event.request.url.includes('/push/') || event.request.url.includes('/socket/')) {
             return response;
           }
           
@@ -107,7 +112,8 @@ self.addEventListener('push', event => {
     icon: '/favicon.ico',
     badge: '/favicon.ico',
     data: notificationData.data || {},
-    requireInteraction: true
+    requireInteraction: true,
+    vibrate: [200, 100, 200]
   };
   
   event.waitUntil(
@@ -127,11 +133,14 @@ self.addEventListener('notificationclick', event => {
       .then(clientList => {
         // Get notification data
         const notificationData = event.notification.data;
-        const url = notificationData.url || '/';
+        const registration = notificationData.registration || '';
+        
+        // Construct the URL with the registration if available
+        const url = registration ? `/?registration=${registration}` : '/';
         
         // If we have an open window, focus it
         for (const client of clientList) {
-          if (client.url === url && 'focus' in client) {
+          if ('focus' in client) {
             return client.focus();
           }
         }
@@ -144,14 +153,14 @@ self.addEventListener('notificationclick', event => {
   );
 });
 
-// Periodic background sync for checking MOT updates
-self.addEventListener('periodicsync', event => {
+// Background sync event for checking MOT updates
+self.addEventListener('sync', event => {
   if (event.tag === 'check-mot-updates') {
     event.waitUntil(checkForMotUpdates());
   }
 });
 
-// Function to check for MOT updates
+// Function to check for MOT updates - now uses the server API
 async function checkForMotUpdates() {
   try {
     // Get registrations to check from IndexedDB
@@ -185,6 +194,11 @@ async function getRegistrationsToCheck() {
       const db = event.target.result;
       
       // Open transaction and get object store
+      if (!db.objectStoreNames.contains('notifications')) {
+        resolve([]);
+        return;
+      }
+      
       const transaction = db.transaction(['notifications'], 'readonly');
       const store = transaction.objectStore('notifications');
       
@@ -215,7 +229,12 @@ async function getRegistrationsToCheck() {
 async function checkRegistration(registration) {
   try {
     // Call the API to check for updates
-    const response = await fetch(`/.netlify/functions/checkMotUpdates?registration=${registration}`);
+    const response = await fetch(`/api/getPendingNotifications?registration=${registration}`, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    });
     
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
@@ -234,22 +253,32 @@ async function checkRegistration(registration) {
 
 // Function to show MOT update notification
 async function showMotUpdateNotification(registration, data) {
-  const title = 'MOT Update Available';
+  // Extract details about the MOT update
+  const details = data.details || {};
+  const testResult = details.testResult || 'UNKNOWN';
+  const make = details.vehicle?.make || '';
+  const model = details.vehicle?.model || '';
   
-  let body = `New MOT test for ${registration}`;
-  if (data.vehicleData && data.vehicleData.make && data.vehicleData.model) {
-    body = `New MOT test for your ${data.vehicleData.make} ${data.vehicleData.model} (${registration})`;
+  const title = `MOT ${testResult === 'PASSED' ? 'Passed ✅' : 'Failed ❌'} - ${registration}`;
+  
+  let body = `New MOT test recorded for your vehicle`;
+  if (make && model) {
+    body = `New MOT test recorded for your ${make} ${model}`;
+  }
+  
+  if (testResult === 'PASSED') {
+    body += ' - Test passed!';
+  } else if (testResult === 'FAILED') {
+    body += ' - Test failed!';
   }
   
   const options = {
     body,
     icon: '/favicon.ico',
     badge: '/favicon.ico',
-    data: {
-      registration,
-      url: `/?registration=${registration}`
-    },
-    requireInteraction: true
+    data: { registration },
+    requireInteraction: true,
+    vibrate: [200, 100, 200, 100, 200]
   };
   
   return self.registration.showNotification(title, options);

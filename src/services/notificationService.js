@@ -1,7 +1,7 @@
 // src/services/notificationService.js
 
 /**
- * Service to handle browser notifications
+ * Service to handle browser notifications and server-side update checks
  */
 
 /**
@@ -9,154 +9,235 @@
  * @returns {Promise<boolean>} - Whether permission was granted
  */
 export const requestNotificationPermission = async () => {
-    if (!('Notification' in window)) {
-      console.warn('This browser does not support notifications');
-      return false;
-    }
-  
-    if (Notification.permission === 'granted') {
-      return true;
-    }
-  
-    if (Notification.permission === 'denied') {
-      console.warn('Notification permission denied');
-      return false;
-    }
-  
-    try {
-      const permission = await Notification.requestPermission();
-      return permission === 'granted';
-    } catch (error) {
-      console.error('Error requesting notification permission:', error);
-      return false;
-    }
-  };
-  
-  /**
-   * Shows a notification
-   * @param {string} title - The notification title
-   * @param {Object} options - Notification options (body, icon, etc.)
-   * @returns {boolean} - Whether the notification was shown
-   */
-  export const showNotification = (title, options = {}) => {
-    if (!('Notification' in window)) {
-      console.warn('This browser does not support notifications');
-      return false;
-    }
-  
-    if (Notification.permission !== 'granted') {
-      console.warn('Notification permission not granted');
-      return false;
-    }
-  
-    try {
-      // Default icon if not provided
-      const completeOptions = {
-        icon: '/favicon.ico', 
-        ...options
-      };
-      
-      const notification = new Notification(title, completeOptions);
-      
-      // Optional: Add event listeners
-      notification.onclick = options.onClick || (() => {
-        window.focus();
-        notification.close();
-      });
-      
-      return true;
-    } catch (error) {
-      console.error('Error showing notification:', error);
-      return false;
-    }
-  };
-  
-  /**
-   * Sets up a periodic check for MOT updates
-   * @param {string} registration - The vehicle registration to check
-   * @param {Function} checkFunction - Function to check for updates
-   * @param {number} intervalMs - Interval in milliseconds (default: 30000 - 30 seconds)
-   * @returns {number} - The interval ID (for clearing later)
-   */
-  export const setupPeriodicCheck = (registration, checkFunction, intervalMs = 30000) => {
-    console.log(`Setting up periodic checks for ${registration} every ${intervalMs}ms`);
+  if (!('Notification' in window)) {
+    console.warn('This browser does not support notifications');
+    return false;
+  }
+
+  if (Notification.permission === 'granted') {
+    return true;
+  }
+
+  if (Notification.permission === 'denied') {
+    console.warn('Notification permission denied');
+    return false;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    return permission === 'granted';
+  } catch (error) {
+    console.error('Error requesting notification permission:', error);
+    return false;
+  }
+};
+
+/**
+ * Shows a notification
+ * @param {string} title - The notification title
+ * @param {Object} options - Notification options (body, icon, etc.)
+ * @returns {Notification|null} - The notification object or null if failed
+ */
+export const showNotification = (title, options = {}) => {
+  if (!('Notification' in window)) {
+    console.warn('This browser does not support notifications');
+    return null;
+  }
+
+  if (Notification.permission !== 'granted') {
+    console.warn('Notification permission not granted');
+    return null;
+  }
+
+  try {
+    // Default options
+    const completeOptions = {
+      icon: '/favicon.ico',
+      requireInteraction: true,  // Make notification persist until user interaction
+      vibrate: [200, 100, 200],  // Vibration pattern for mobile devices
+      ...options
+    };
     
-    // Immediately check once
-    checkFunction(registration);
+    const notification = new Notification(title, completeOptions);
     
-    // Then set up the interval
-    return setInterval(() => {
-      checkFunction(registration);
-    }, intervalMs);
-  };
+    // Set up default click handler if not provided
+    notification.onclick = options.onClick || function() {
+      window.focus();
+      notification.close();
+    };
+    
+    return notification;
+  } catch (error) {
+    console.error('Error showing notification:', error);
+    return null;
+  }
+};
+
+/**
+ * Checks for MOT updates for a registration
+ * @param {string} registration - Vehicle registration to check
+ * @returns {Promise<Object>} - Update information
+ */
+export const checkForUpdates = async (registration) => {
+  if (!registration) return null;
   
-  /**
-   * Stops periodic checks for a registration
-   * @param {number} intervalId - The interval ID to clear
-   */
-  export const stopPeriodicCheck = (intervalId) => {
-    if (intervalId) {
-      clearInterval(intervalId);
-    }
-  };
-  
-  /**
-   * Manages all notification intervals
-   */
-  class NotificationManager {
-    constructor() {
-      this.intervals = new Map(); // Map of registration -> intervalId
-    }
-    
-    /**
-     * Start monitoring a registration
-     * @param {string} registration - The vehicle registration to monitor
-     * @param {Function} checkFunction - Function to check for updates
-     * @param {number} intervalMs - Interval in milliseconds
-     */
-    startMonitoring(registration, checkFunction, intervalMs = 30000) {
-      // First stop any existing monitoring for this registration
-      this.stopMonitoring(registration);
-      
-      // Start new monitoring
-      const intervalId = setupPeriodicCheck(registration, checkFunction, intervalMs);
-      this.intervals.set(registration, intervalId);
-      
-      return intervalId;
-    }
-    
-    /**
-     * Stop monitoring a registration
-     * @param {string} registration - The vehicle registration to stop monitoring
-     */
-    stopMonitoring(registration) {
-      if (this.intervals.has(registration)) {
-        stopPeriodicCheck(this.intervals.get(registration));
-        this.intervals.delete(registration);
-        return true;
+  try {
+    const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
+    const response = await fetch(`/api/getPendingNotifications?registration=${formattedReg}`, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
       }
-      return false;
-    }
+    });
     
-    /**
-     * Check if a registration is being monitored
-     * @param {string} registration - The vehicle registration to check
-     * @returns {boolean} - Whether the registration is being monitored
-     */
-    isMonitoring(registration) {
-      return this.intervals.has(registration);
-    }
-    
-    /**
-     * Stop monitoring all registrations
-     */
-    stopAll() {
-      for (const intervalId of this.intervals.values()) {
-        clearInterval(intervalId);
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.warn(`No monitoring set up for ${formattedReg}`);
+        return null;
       }
-      this.intervals.clear();
+      throw new Error(`Error status ${response.status}: ${response.statusText}`);
     }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error(`Error checking for updates for ${registration}:`, error);
+    return null;
+  }
+};
+
+/**
+ * Fetches all monitored vehicles
+ * @returns {Promise<Array>} - List of monitored vehicles
+ */
+export const getMonitoredVehicles = async () => {
+  try {
+    const response = await fetch('/api/getMonitoredVehicles', {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Error status ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.vehicles || [];
+  } catch (error) {
+    console.error('Error fetching monitored vehicles:', error);
+    return [];
+  }
+};
+
+/**
+ * Manages polling for updates
+ */
+class UpdatePoller {
+  constructor() {
+    this.intervals = new Map(); // Map of registration -> intervalId
+    this.handlers = new Map();  // Map of registration -> callback function
   }
   
-  // Export a singleton instance
-  export const notificationManager = new NotificationManager();
+  /**
+   * Start polling for updates
+   * @param {string} registration - Vehicle registration to poll for
+   * @param {Function} onUpdate - Callback when an update is found
+   * @param {number} intervalSeconds - Polling interval in seconds
+   */
+  startPolling(registration, onUpdate, intervalSeconds = 60) {
+    this.stopPolling(registration);
+    
+    const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
+    this.handlers.set(formattedReg, onUpdate);
+    
+    const pollFn = async () => {
+      const updateInfo = await checkForUpdates(formattedReg);
+      
+      if (updateInfo && updateInfo.hasUpdate) {
+        console.log(`Update found for ${formattedReg}`, updateInfo);
+        if (onUpdate) {
+          onUpdate(updateInfo);
+        }
+      }
+    };
+    
+    // Run immediately
+    pollFn();
+    
+    // Set up interval
+    const intervalId = setInterval(pollFn, intervalSeconds * 1000);
+    this.intervals.set(formattedReg, intervalId);
+    
+    return intervalId;
+  }
+  
+  /**
+   * Stop polling for a registration
+   * @param {string} registration - Vehicle registration to stop
+   */
+  stopPolling(registration) {
+    if (!registration) return;
+    
+    const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
+    
+    if (this.intervals.has(formattedReg)) {
+      clearInterval(this.intervals.get(formattedReg));
+      this.intervals.delete(formattedReg);
+      this.handlers.delete(formattedReg);
+      return true;
+    }
+    return false;
+  }
+  
+  /**
+   * Start polling for multiple registrations
+   * @param {Array<string>} registrations - List of registrations
+   * @param {Function} onUpdate - Common update handler
+   * @param {number} intervalSeconds - Polling interval in seconds
+   */
+  startPollingMultiple(registrations, onUpdate, intervalSeconds = 60) {
+    if (!registrations || !registrations.length) return;
+    
+    registrations.forEach(reg => {
+      this.startPolling(reg, onUpdate, intervalSeconds);
+    });
+  }
+  
+  /**
+   * Stop all polling
+   */
+  stopAll() {
+    for (const [reg, intervalId] of this.intervals.entries()) {
+      clearInterval(intervalId);
+      console.log(`Stopped polling for ${reg}`);
+    }
+    
+    this.intervals.clear();
+    this.handlers.clear();
+  }
+  
+  /**
+   * Check if polling is active for a registration
+   * @param {string} registration - Vehicle registration
+   * @returns {boolean} - Whether polling is active
+   */
+  isPollingActive(registration) {
+    if (!registration) return false;
+    
+    const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
+    return this.intervals.has(formattedReg);
+  }
+  
+  /**
+   * Get all registrations currently being polled
+   * @returns {Array<string>} - List of registrations
+   */
+  getActivePolls() {
+    return Array.from(this.intervals.keys());
+  }
+}
+
+// Export a singleton instance
+export const updatePoller = new UpdatePoller();

@@ -67,7 +67,8 @@ async function getMotHistory(registration) {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-API-Key': API_KEY
-        }
+        },
+        timeout: 10000 // 10 second timeout
       }
     );
     
@@ -93,6 +94,19 @@ function getLatestMotTestDate(vehicleData) {
 }
 
 /**
+ * Gets the latest MOT test result from vehicle data
+ */
+function getLatestMotTestResult(vehicleData) {
+  if (!vehicleData.motTests || vehicleData.motTests.length === 0) {
+    return null;
+  }
+  
+  // Find the latest test by completedDate
+  return vehicleData.motTests
+    .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate))[0];
+}
+
+/**
  * Netlify scheduled function handler
  */
 const handler = async (event) => {
@@ -115,62 +129,84 @@ const handler = async (event) => {
       errors: 0
     };
     
-    for (const reg of registrations) {
-      // Check each registration for updates
-      try {
-        console.log(`Checking ${reg.registration}`);
-        results.checked++;
-        
-        const vehicleData = await getMotHistory(reg.registration);
-        const latestMotTestDate = getLatestMotTestDate(vehicleData);
-        
-        // Get the current stored MOT test date
-        const lastMotTestDate = reg.lastMotTestDate;
-        
-        console.log(`Registration: ${reg.registration}`);
-        console.log(`Last MOT test date in DB: ${lastMotTestDate || 'None'}`);
-        console.log(`Latest MOT test date from API: ${latestMotTestDate || 'None'}`);
-        
-        // Determine if there's an update
-        if (latestMotTestDate && (!lastMotTestDate || new Date(latestMotTestDate) > new Date(lastMotTestDate))) {
-          console.log(`Update detected for ${reg.registration}!`);
-          results.updated++;
+    // Process in batches to avoid rate limits (5 at a time)
+    const batchSize = 5;
+    
+    for (let i = 0; i < registrations.length; i += batchSize) {
+      const batch = registrations.slice(i, i + batchSize);
+      
+      // Process each batch concurrently
+      await Promise.all(batch.map(async (reg) => {
+        try {
+          console.log(`Checking ${reg.registration}`);
+          results.checked++;
           
-          // Update the database record with new test date
-          await collection.updateOne(
-            { registration: reg.registration },
-            { 
-              $set: { 
-                lastMotTestDate: latestMotTestDate,
-                lastCheckedDate: new Date().toISOString(),
-                hasUpdate: true, 
-                updateDetectedAt: new Date().toISOString(),
-                updateDetails: {
-                  previousDate: lastMotTestDate,
-                  newDate: latestMotTestDate,
-                  vehicle: {
-                    make: vehicleData.make,
-                    model: vehicleData.model,
-                    registration: vehicleData.registration
+          const vehicleData = await getMotHistory(reg.registration);
+          const latestMotTest = getLatestMotTestResult(vehicleData);
+          const latestMotTestDate = latestMotTest ? latestMotTest.completedDate : null;
+          
+          // Get the current stored MOT test date
+          const lastMotTestDate = reg.lastMotTestDate;
+          
+          console.log(`Registration: ${reg.registration}`);
+          console.log(`Last MOT test date in DB: ${lastMotTestDate || 'None'}`);
+          console.log(`Latest MOT test date from API: ${latestMotTestDate || 'None'}`);
+          
+          // Determine if there's an update
+          if (latestMotTestDate && (!lastMotTestDate || new Date(latestMotTestDate) > new Date(lastMotTestDate))) {
+            console.log(`Update detected for ${reg.registration}!`);
+            results.updated++;
+            
+            // Get test result details
+            const testResult = latestMotTest ? latestMotTest.testResult : null;
+            const expiryDate = latestMotTest ? latestMotTest.expiryDate : null;
+            const defects = latestMotTest && latestMotTest.defects ? latestMotTest.defects : [];
+            
+            // Update the database record with new test data
+            await collection.updateOne(
+              { registration: reg.registration },
+              { 
+                $set: { 
+                  lastMotTestDate: latestMotTestDate,
+                  lastCheckedDate: new Date().toISOString(),
+                  hasUpdate: true, 
+                  updateDetectedAt: new Date().toISOString(),
+                  updateDetails: {
+                    previousDate: lastMotTestDate,
+                    newDate: latestMotTestDate,
+                    testResult: testResult,
+                    expiryDate: expiryDate,
+                    defects: defects,
+                    vehicle: {
+                      make: vehicleData.make,
+                      model: vehicleData.model,
+                      registration: vehicleData.registration,
+                      color: vehicleData.primaryColour
+                    }
                   }
                 }
               }
-            }
-          );
-        } else {
-          // Just update the last checked time
-          await collection.updateOne(
-            { registration: reg.registration },
-            { 
-              $set: { 
-                lastCheckedDate: new Date().toISOString()
+            );
+          } else {
+            // Just update the last checked time
+            await collection.updateOne(
+              { registration: reg.registration },
+              { 
+                $set: { 
+                  lastCheckedDate: new Date().toISOString()
+                }
               }
-            }
-          );
+            );
+          }
+        } catch (error) {
+          console.error(`Error checking ${reg.registration}:`, error);
+          results.errors++;
         }
-      } catch (error) {
-        console.error(`Error checking ${reg.registration}:`, error);
-        results.errors++;
+      }));
+      
+      // Add a small delay between batches to avoid rate limiting
+      if (i + batchSize < registrations.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
     
@@ -192,5 +228,6 @@ const handler = async (event) => {
   }
 };
 
-// Run every hour
-module.exports.handler = schedule('0 * * * *', handler);
+// Run every minute for near real-time updates
+// Note: Netlify may not support sub-minute frequency, so we're using 1 minute
+module.exports.handler = schedule('* * * * *', handler);

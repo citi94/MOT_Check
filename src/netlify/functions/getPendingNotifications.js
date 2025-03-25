@@ -6,7 +6,10 @@ exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
   };
 
   // Handle preflight request
@@ -35,11 +38,21 @@ exports.handler = async (event) => {
     const collection = db.collection('notifications');
     
     const record = await collection.findOne({ 
-      registration: formattedReg, 
-      hasUpdate: true 
+      registration: formattedReg
     });
     
-    if (record) {
+    if (!record) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({
+          error: true,
+          message: `No notification subscription found for ${formattedReg}`
+        })
+      };
+    }
+    
+    if (record.hasUpdate) {
       // Get update details
       const updateDetails = record.updateDetails || {};
       
@@ -56,15 +69,23 @@ exports.handler = async (event) => {
           hasUpdate: true, 
           registration: formattedReg,
           updateDetectedAt: record.updateDetectedAt,
-          details: updateDetails
+          details: updateDetails,
+          lastCheckedDate: record.lastCheckedDate
         })
       };
     }
     
+    // Return monitoring status even if no updates
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ hasUpdate: false })
+      body: JSON.stringify({
+        hasUpdate: false,
+        registration: formattedReg,
+        isMonitored: true,
+        lastCheckedDate: record.lastCheckedDate || null,
+        lastMotTestDate: record.lastMotTestDate || null
+      })
     };
   } catch (error) {
     console.error('Error checking pending notifications:', error);
@@ -72,7 +93,10 @@ exports.handler = async (event) => {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({
+        error: true,
+        message: error.message || 'Internal server error'
+      })
     };
   }
 };
