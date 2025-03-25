@@ -80,23 +80,9 @@ async function getMotHistory(registration) {
 }
 
 /**
- * Gets the latest MOT test date from vehicle data
- */
-function getLatestMotTestDate(vehicleData) {
-  if (!vehicleData.motTests || vehicleData.motTests.length === 0) {
-    return null;
-  }
-  
-  // Find the latest test by completedDate
-  return vehicleData.motTests
-    .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate))[0]
-    .completedDate;
-}
-
-/**
  * Gets the latest MOT test result from vehicle data
  */
-function getLatestMotTestResult(vehicleData) {
+function getLatestMotTest(vehicleData) {
   if (!vehicleData.motTests || vehicleData.motTests.length === 0) {
     return null;
   }
@@ -111,7 +97,7 @@ function getLatestMotTestResult(vehicleData) {
  */
 const handler = async (event) => {
   try {
-    console.log('Starting scheduled MOT check');
+    console.log('Starting scheduled MOT check:', new Date().toISOString());
     
     // Connect to MongoDB
     const db = await connectToDatabase();
@@ -121,6 +107,17 @@ const handler = async (event) => {
     const registrations = await collection.find({ enabled: true }).toArray();
     console.log(`Found ${registrations.length} active registrations to check`);
     
+    if (registrations.length === 0) {
+      console.log('No registrations to check, exiting');
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ 
+          message: 'No registrations to check',
+          timestamp: new Date().toISOString()
+        }),
+      };
+    }
+    
     // Keep track of results
     const results = {
       total: registrations.length,
@@ -129,21 +126,28 @@ const handler = async (event) => {
       errors: 0
     };
     
-    // Process in batches to avoid rate limits (5 at a time)
-    const batchSize = 5;
+    // Process in batches to avoid rate limits (3 at a time)
+    const batchSize = 3;
     
     for (let i = 0; i < registrations.length; i += batchSize) {
       const batch = registrations.slice(i, i + batchSize);
       
-      // Process each batch concurrently
-      await Promise.all(batch.map(async (reg) => {
+      // Process each batch sequentially to avoid rate limits
+      for (const reg of batch) {
         try {
-          console.log(`Checking ${reg.registration}`);
           results.checked++;
+          console.log(`[${results.checked}/${registrations.length}] Checking ${reg.registration}`);
           
+          // Fetch the latest MOT data
           const vehicleData = await getMotHistory(reg.registration);
-          const latestMotTest = getLatestMotTestResult(vehicleData);
-          const latestMotTestDate = latestMotTest ? latestMotTest.completedDate : null;
+          const latestMotTest = getLatestMotTest(vehicleData);
+          
+          if (!latestMotTest) {
+            console.log(`No MOT tests found for ${reg.registration}`);
+            continue;
+          }
+          
+          const latestMotTestDate = latestMotTest.completedDate;
           
           // Get the current stored MOT test date
           const lastMotTestDate = reg.lastMotTestDate;
@@ -157,11 +161,6 @@ const handler = async (event) => {
             console.log(`Update detected for ${reg.registration}!`);
             results.updated++;
             
-            // Get test result details
-            const testResult = latestMotTest ? latestMotTest.testResult : null;
-            const expiryDate = latestMotTest ? latestMotTest.expiryDate : null;
-            const defects = latestMotTest && latestMotTest.defects ? latestMotTest.defects : [];
-            
             // Update the database record with new test data
             await collection.updateOne(
               { registration: reg.registration },
@@ -174,14 +173,14 @@ const handler = async (event) => {
                   updateDetails: {
                     previousDate: lastMotTestDate,
                     newDate: latestMotTestDate,
-                    testResult: testResult,
-                    expiryDate: expiryDate,
-                    defects: defects,
+                    testResult: latestMotTest.testResult,
+                    expiryDate: latestMotTest.expiryDate,
+                    defects: latestMotTest.defects || [],
                     vehicle: {
-                      make: vehicleData.make,
-                      model: vehicleData.model,
+                      make: vehicleData.make || 'Unknown',
+                      model: vehicleData.model || 'Unknown',
                       registration: vehicleData.registration,
-                      color: vehicleData.primaryColour
+                      color: vehicleData.primaryColour || 'Unknown'
                     }
                   }
                 }
@@ -202,32 +201,38 @@ const handler = async (event) => {
           console.error(`Error checking ${reg.registration}:`, error);
           results.errors++;
         }
-      }));
+      }
       
       // Add a small delay between batches to avoid rate limiting
       if (i + batchSize < registrations.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const delay = 3000; // 3 seconds
+        console.log(`Waiting ${delay}ms before next batch`);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
-    console.log('Scheduled check completed', results);
+    console.log('Scheduled check completed:', results);
     
     return {
       statusCode: 200,
       body: JSON.stringify({ 
         message: 'Scheduled check completed',
-        results: results
+        results: results,
+        timestamp: new Date().toISOString()
       }),
     };
   } catch (error) {
     console.error('Error in scheduled check:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Failed to run scheduled check' }),
+      body: JSON.stringify({ 
+        error: 'Failed to run scheduled check',
+        message: error.message,
+        timestamp: new Date().toISOString()
+      }),
     };
   }
 };
 
-// Run every minute for near real-time updates
-// Note: Netlify may not support sub-minute frequency, so we're using 1 minute
-module.exports.handler = schedule('* * * * *', handler);
+// Run once per hour (Netlify's minimum frequency)
+module.exports.handler = schedule('@hourly', handler);

@@ -53,13 +53,15 @@ exports.handler = async (event) => {
     }
     
     if (record.hasUpdate) {
+      console.log(`Pending update found for ${formattedReg}`);
+      
       // Get update details
       const updateDetails = record.updateDetails || {};
       
-      // Clear the update flag
+      // Clear the update flag so it's only notified once
       await collection.updateOne(
         { registration: formattedReg },
-        { $set: { hasUpdate: false } }
+        { $set: { hasUpdate: false, updateAcknowledgedAt: new Date().toISOString() } }
       );
       
       return {

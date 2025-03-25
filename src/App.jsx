@@ -15,6 +15,54 @@ const App = () => {
   const [pollingInterval, setPollingInterval] = useState(60);
   const [statusMessage, setStatusMessage] = useState('');
   
+  // Handle MOT update - defined early since it's used in other hooks
+  const handleMotUpdate = useCallback((updateInfo) => {
+    // Only handle if there's actually an update
+    if (!updateInfo || !updateInfo.hasUpdate) return;
+    
+    const { registration, details } = updateInfo;
+    
+    console.log(`MOT update found for ${registration}:`, details);
+    
+    // If this is the currently displayed vehicle, refresh the data
+    if (registration === currentReg) {
+      fetchVehicleData(registration);
+    }
+    
+    // Show a notification about the update
+    const testResult = details.testResult || 'UNKNOWN';
+    const make = details.vehicle?.make || '';
+    const model = details.vehicle?.model || '';
+    
+    const title = `MOT ${testResult === 'PASSED' ? 'Passed ✅' : 'Failed ❌'} - ${registration}`;
+    const body = `New MOT test recorded for your ${make} ${model}${testResult === 'PASSED' ? ' - Test passed!' : ' - Test failed!'}`;
+    
+    showNotification(title, {
+      body,
+      icon: '/favicon.ico',
+      requireInteraction: true,
+      vibrate: [200, 100, 200, 100, 200],
+      data: { registration },
+      onClick: () => {
+        fetchVehicleData(registration);
+        window.focus();
+      }
+    });
+  }, [currentReg]); // currentReg is the only dependency needed here
+  
+  // Set up polling for all registrations
+  const setupPollingForRegistrations = useCallback((registrations) => {
+    if (!registrations || !registrations.length) return;
+    
+    // Stop any existing polling
+    updatePoller.stopAll();
+    
+    // Start polling for all registrations with a common update handler
+    updatePoller.startPollingMultiple(registrations, handleMotUpdate, pollingInterval);
+    
+    setStatusMessage(`Checking for updates every ${pollingInterval} seconds`);
+  }, [pollingInterval, handleMotUpdate]); // Added handleMotUpdate as dependency
+  
   // Load monitored registrations from server on initial load
   useEffect(() => {
     const loadRegistrations = async () => {
@@ -54,60 +102,12 @@ const App = () => {
     return () => {
       updatePoller.stopAll();
     };
-  }, []);
-  
-  // Set up polling for all registrations
-  const setupPollingForRegistrations = useCallback((registrations) => {
-    if (!registrations || !registrations.length) return;
-    
-    // Stop any existing polling
-    updatePoller.stopAll();
-    
-    // Start polling for all registrations with a common update handler
-    updatePoller.startPollingMultiple(registrations, handleMotUpdate, pollingInterval);
-    
-    setStatusMessage(`Checking for updates every ${pollingInterval} seconds`);
-  }, [pollingInterval]);
+  }, [setupPollingForRegistrations]); // Added setupPollingForRegistrations as dependency
   
   // Save notified registrations to localStorage as a backup
   useEffect(() => {
     localStorage.setItem('notifiedRegs', JSON.stringify(notifiedRegs));
   }, [notifiedRegs]);
-  
-  // Handle MOT update
-  const handleMotUpdate = useCallback((updateInfo) => {
-    // Only handle if there's actually an update
-    if (!updateInfo || !updateInfo.hasUpdate) return;
-    
-    const { registration, details } = updateInfo;
-    
-    console.log(`MOT update found for ${registration}:`, details);
-    
-    // If this is the currently displayed vehicle, refresh the data
-    if (registration === currentReg) {
-      fetchVehicleData(registration);
-    }
-    
-    // Show a notification about the update
-    const testResult = details.testResult || 'UNKNOWN';
-    const make = details.vehicle?.make || '';
-    const model = details.vehicle?.model || '';
-    
-    const title = `MOT ${testResult === 'PASSED' ? 'Passed ✅' : 'Failed ❌'} - ${registration}`;
-    const body = `New MOT test recorded for your ${make} ${model}${testResult === 'PASSED' ? ' - Test passed!' : ' - Test failed!'}`;
-    
-    showNotification(title, {
-      body,
-      icon: '/favicon.ico',
-      requireInteraction: true,
-      vibrate: [200, 100, 200, 100, 200],
-      data: { registration },
-      onClick: () => {
-        fetchVehicleData(registration);
-        window.focus();
-      }
-    });
-  }, [currentReg]);
   
   const fetchVehicleData = async (registration) => {
     if (!registration) return;

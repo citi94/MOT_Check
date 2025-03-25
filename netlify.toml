@@ -9,9 +9,9 @@
 [context.production.environment]
   NODE_ENV = "production"
 
-# Scheduled function configuration
+# Fix: Corrected scheduled function configuration
 [functions."scheduled-mot-check"]
-  schedule = "* * * * *"  # Run every minute
+  schedule = "@hourly"
 
 # Redirect all API requests to Netlify Functions
 [[redirects]]
