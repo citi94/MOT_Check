@@ -52,7 +52,7 @@ self.addEventListener('activate', event => {
 // Fetch event - serve from cache if possible
 self.addEventListener('fetch', event => {
   // Skip for API calls
-  if (event.request.url.includes('/api')) {
+  if (event.request.url.includes('/.netlify/functions/')) {
     return;
   }
   
