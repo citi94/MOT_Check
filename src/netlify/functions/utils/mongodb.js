@@ -1,5 +1,5 @@
 // MongoDB connection utility
-const { MongoClient } = require('mongodb');
+const { MongoClient, ServerApiVersion } = require('mongodb');
 
 // Connection URI - using environment variables
 const uri = process.env.MONGODB_URI;
@@ -18,7 +18,14 @@ async function connectToDatabase() {
   }
 
   // Connect to our MongoDB database hosted on MongoDB Atlas
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, {
+    serverApi: {
+      version: ServerApiVersion.v1,
+      strict: true,
+      deprecationErrors: true,
+    }
+  });
+  
   await client.connect();
   
   // Specify which database we want to use

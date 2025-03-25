@@ -1,8 +1,7 @@
 // netlify/functions/checkMotUpdates.js
 
 const axios = require('axios');
-const faunadb = require('faunadb');
-const q = faunadb.query;
+const { connectToDatabase } = require('./utils/mongodb');
 
 // Constants for API URLs and credentials
 const MOT_API_URL = 'https://history.mot.api.gov.uk';
@@ -11,11 +10,6 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const API_KEY = process.env.API_KEY;
 const SCOPE = process.env.SCOPE;
-
-// Initialize FaunaDB client
-const client = new faunadb.Client({
-  secret: process.env.FAUNA_SECRET_KEY
-});
 
 // Cache for access token
 let cachedToken = null;
@@ -132,29 +126,28 @@ exports.handler = async function(event, context) {
     // Format registration
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
     
-    // Get the notification record from FaunaDB
-    let notificationRecord;
-    try {
-      notificationRecord = await client.query(
-        q.Get(q.Match(q.Index('notification_by_registration'), formattedReg))
-      );
-    } catch (e) {
-      if (e.name === 'NotFound') {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({
-            error: true,
-            message: `No notification subscription found for ${formattedReg}`
-          })
-        };
-      }
-      throw e;
+    // Get the notification record from MongoDB
+    const db = await connectToDatabase();
+    const notificationsCollection = db.collection('notifications');
+    
+    // Look for a notification with this registration
+    const notificationRecord = await notificationsCollection.findOne({ 
+      registration: formattedReg 
+    });
+    
+    if (!notificationRecord) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({
+          error: true,
+          message: `No notification subscription found for ${formattedReg}`
+        })
+      };
     }
     
-    // Get the current data from the record
-    const notificationData = notificationRecord.data;
-    const lastMotTestDate = notificationData.lastMotTestDate;
+    // Get the current data
+    const lastMotTestDate = notificationRecord.lastMotTestDate;
     
     // Fetch the latest MOT data
     const vehicleData = await getMotHistory(formattedReg);
@@ -166,14 +159,15 @@ exports.handler = async function(event, context) {
       hasUpdate = true;
     }
     
-    // Update the record in FaunaDB with the latest check time and MOT test date
-    await client.query(
-      q.Update(notificationRecord.ref, {
-        data: {
+    // Update the record in MongoDB with the latest check time and MOT test date
+    await notificationsCollection.updateOne(
+      { registration: formattedReg },
+      { 
+        $set: {
           lastCheckedDate: new Date().toISOString(),
           lastMotTestDate: latestMotTestDate
         }
-      })
+      }
     );
     
     // Return the result
