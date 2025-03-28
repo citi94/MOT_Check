@@ -193,9 +193,13 @@ class UpdatePoller {
         // Reset error count on success
         this.errorCounts.set(formattedReg, 0);
         
-        // Always call onPollComplete if provided, to update the "Last checked" timestamp
-        if (onPollComplete && updateInfo) {
-          onPollComplete(formattedReg, updateInfo.lastCheckedDate);
+        // ALWAYS call onPollComplete if provided, regardless of updateInfo
+        // This ensures the "Last checked" timestamp is always updated
+        if (onPollComplete) {
+          console.log(`Calling onPollComplete for ${formattedReg}`);
+          // Pass the current time if no update info is available
+          const checkTime = updateInfo?.lastCheckedDate || new Date().toISOString();
+          onPollComplete(formattedReg, checkTime);
         }
         
         if (updateInfo && updateInfo.hasUpdate) {
@@ -211,6 +215,12 @@ class UpdatePoller {
         
         console.error(`Error polling ${formattedReg} (error #${currentErrors + 1}):`, error);
         
+        // Always call onPollComplete even if there's an error
+        if (onPollComplete) {
+          console.log(`Calling onPollComplete after error for ${formattedReg}`);
+          onPollComplete(formattedReg, new Date().toISOString());
+        }
+        
         // If exceeded MAX_ERRORS, back off but don't stop polling completely
         if (currentErrors + 1 >= this.MAX_ERRORS) {
           console.warn(`Backing off polling for ${formattedReg} due to consecutive errors`);
@@ -221,6 +231,7 @@ class UpdatePoller {
     };
     
     // Run immediately
+    console.log(`Running initial poll for ${formattedReg}`);
     pollFn();
     
     // Set up interval
@@ -264,6 +275,10 @@ class UpdatePoller {
     
     console.log(`Starting polling for ${registrations.length} registrations every ${intervalSeconds} seconds`);
     
+    // First stop all existing polling to avoid duplicates
+    this.stopAll();
+    
+    // Start fresh with the new registrations
     registrations.forEach(reg => {
       this.startPolling(reg, onUpdate, intervalSeconds, onPollComplete);
     });

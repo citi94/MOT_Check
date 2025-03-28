@@ -15,13 +15,16 @@ const App = () => {
   const [pollingInterval, setPollingInterval] = useState(60);
   const [statusMessage, setStatusMessage] = useState('');
   
-  // Handle updating the last checked timestamp
-  const handlePollComplete = useCallback((registration, checkTime) => {
-    console.log(`Poll completed for ${registration} at ${checkTime}`);
-    if (registration === currentReg) {
-      setLastChecked(checkTime ? new Date(checkTime) : new Date());
-    }
-  }, [currentReg]);
+// Handle updating the last checked timestamp
+const handlePollComplete = useCallback((registration, checkTime) => {
+  console.log(`Poll completed for ${registration} at ${checkTime}`);
+  if (registration === currentReg) {
+    console.log(`Updating lastChecked for displayed registration ${currentReg}`);
+    setLastChecked(checkTime ? new Date(checkTime) : new Date());
+  } else {
+    console.log(`Not updating UI - current reg: ${currentReg}, poll reg: ${registration}`);
+  }
+}, [currentReg]);
   
   // Handle MOT update - defined early since it's used in other hooks
   const handleMotUpdate = useCallback((updateInfo) => {
