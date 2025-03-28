@@ -12,19 +12,26 @@ const App = () => {
   const [error, setError] = useState(null);
   const [notifiedRegs, setNotifiedRegs] = useState([]);
   const [lastChecked, setLastChecked] = useState(null);
+  const [lastMotUpdate, setLastMotUpdate] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(60);
   const [statusMessage, setStatusMessage] = useState('');
   
-// Handle updating the last checked timestamp
-const handlePollComplete = useCallback((registration, checkTime) => {
-  console.log(`Poll completed for ${registration} at ${checkTime}`);
-  if (registration === currentReg) {
-    console.log(`Updating lastChecked for displayed registration ${currentReg}`);
-    setLastChecked(checkTime ? new Date(checkTime) : new Date());
-  } else {
-    console.log(`Not updating UI - current reg: ${currentReg}, poll reg: ${registration}`);
-  }
-}, [currentReg]);
+  // Handle updating the last checked timestamp - improved to handle formatting differences
+  const handlePollComplete = useCallback((registration, checkTime) => {
+    // Use normalized formats for comparison to avoid case/whitespace issues
+    const normalizedPolledReg = registration.replace(/\s+/g, '').toUpperCase();
+    const normalizedCurrentReg = currentReg.replace(/\s+/g, '').toUpperCase();
+    
+    console.log(`Poll completed for ${registration} at ${checkTime}`);
+    console.log(`Comparing registrations: polled=${normalizedPolledReg}, current=${normalizedCurrentReg}`);
+    
+    if (normalizedPolledReg === normalizedCurrentReg) {
+      console.log(`Updating lastChecked for displayed registration ${currentReg}`);
+      setLastChecked(checkTime ? new Date(checkTime) : new Date());
+    } else {
+      console.log(`Not updating UI - current reg: ${currentReg}, poll reg: ${registration}`);
+    }
+  }, [currentReg]);
   
   // Handle MOT update - defined early since it's used in other hooks
   const handleMotUpdate = useCallback((updateInfo) => {
@@ -36,7 +43,10 @@ const handlePollComplete = useCallback((registration, checkTime) => {
     console.log(`MOT update found for ${registration}:`, details);
     
     // If this is the currently displayed vehicle, refresh the data
-    if (registration === currentReg) {
+    const normalizedUpdateReg = registration.replace(/\s+/g, '').toUpperCase();
+    const normalizedCurrentReg = currentReg.replace(/\s+/g, '').toUpperCase();
+    
+    if (normalizedUpdateReg === normalizedCurrentReg) {
       fetchVehicleData(registration);
     }
     
@@ -128,6 +138,20 @@ const handlePollComplete = useCallback((registration, checkTime) => {
     localStorage.setItem('notifiedRegs', JSON.stringify(notifiedRegs));
   }, [notifiedRegs]);
   
+  // Extract the latest MOT test date from vehicle data
+  const getLatestMotTestDate = (vehicleData) => {
+    if (!vehicleData || !vehicleData.motTests || vehicleData.motTests.length === 0) {
+      return null;
+    }
+    
+    // Find the latest test by completedDate
+    const sortedTests = [...vehicleData.motTests].sort(
+      (a, b) => new Date(b.completedDate) - new Date(a.completedDate)
+    );
+    
+    return sortedTests[0].completedDate;
+  };
+  
   const fetchVehicleData = async (registration) => {
     if (!registration) return;
     
@@ -170,6 +194,13 @@ const handlePollComplete = useCallback((registration, checkTime) => {
       setVehicleData(data);
       setCurrentReg(formattedReg);
       setLastChecked(new Date());
+      
+      // Set the last MOT update date
+      const latestMotDate = getLatestMotTestDate(data);
+      if (latestMotDate) {
+        setLastMotUpdate(new Date(latestMotDate));
+      }
+      
     } catch (err) {
       console.error('Error fetching MOT data:', err);
       setError(err.message || 'An unknown error occurred');
@@ -260,6 +291,19 @@ const handlePollComplete = useCallback((registration, checkTime) => {
     setStatusMessage(`Checking for updates every ${intervalValue} seconds`);
   };
 
+  // Format a date with both date and time
+  const formatDateTime = (date) => {
+    if (!date) return 'Never';
+    
+    return date.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden">
@@ -309,9 +353,13 @@ const handlePollComplete = useCallback((registration, checkTime) => {
                 </div>
               </div>
               
-              {lastChecked && (
+              <div className="text-xs text-gray-500 mb-1">
+                Last checked: {formatDateTime(lastChecked)}
+              </div>
+              
+              {lastMotUpdate && (
                 <div className="text-xs text-gray-500 mb-2">
-                  Last checked: {lastChecked.toLocaleTimeString()}
+                  Last MOT update: {formatDateTime(lastMotUpdate)}
                 </div>
               )}
               
