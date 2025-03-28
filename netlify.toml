@@ -20,6 +20,19 @@
   status = 200
   force = true # Force this redirect to always happen
 
+# Additional explicit redirects for specific functions
+[[redirects]]
+  from = "/api/getMonitoredVehicles"
+  to = "/.netlify/functions/getMonitoredVehicles"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/getPendingNotifications*"
+  to = "/.netlify/functions/getPendingNotifications:splat"
+  status = 200
+  force = true
+
 # Redirect all other requests to index.html for client-side routing
 [[redirects]]
   from = "/*"

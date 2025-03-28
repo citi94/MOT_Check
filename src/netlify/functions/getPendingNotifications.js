@@ -34,7 +34,7 @@ exports.handler = async (event) => {
     // Format the registration (remove spaces, uppercase)
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
     
-    console.log(`Checking for pending notifications for ${formattedReg}`); // Add logging
+    console.log(`Checking for pending notifications for ${formattedReg}`); 
 
     const db = await connectToDatabase();
     const collection = db.collection('notifications');
@@ -59,7 +59,7 @@ exports.handler = async (event) => {
       hasUpdate: !!record.hasUpdate,
       lastCheckedDate: record.lastCheckedDate,
       lastMotTestDate: record.lastMotTestDate
-    }); // Add detailed logging
+    });
     
     if (record.hasUpdate) {
       console.log(`Pending update found for ${formattedReg}`);
