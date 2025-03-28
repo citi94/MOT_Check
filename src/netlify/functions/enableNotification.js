@@ -61,6 +61,7 @@ async function getMotHistory(registration) {
   const token = await getAccessToken();
 
   try {
+    console.log(`Fetching MOT history for ${registration}`); // Add logging
     const response = await axios.get(
       `${MOT_API_URL}/v1/trade/vehicles/registration/${registration}`,
       {
@@ -72,6 +73,7 @@ async function getMotHistory(registration) {
       }
     );
     
+    console.log(`Successfully fetched MOT history for ${registration}`); // Add logging
     return response.data;
   } catch (error) {
     console.error(`Error fetching MOT history for ${registration}:`, error.response?.data || error.message);
@@ -83,14 +85,18 @@ async function getMotHistory(registration) {
  * Gets the latest MOT test date from vehicle data
  */
 function getLatestMotTestDate(vehicleData) {
-  if (!vehicleData.motTests || vehicleData.motTests.length === 0) {
+  if (!vehicleData || !vehicleData.motTests || vehicleData.motTests.length === 0) {
+    console.log('No MOT tests found in vehicle data'); // Add logging
     return null;
   }
   
   // Find the latest test by completedDate
-  return vehicleData.motTests
-    .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate))[0]
-    .completedDate;
+  const sortedTests = vehicleData.motTests.sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate));
+  const latestTest = sortedTests[0];
+  const date = latestTest.completedDate;
+  
+  console.log(`Latest MOT test date found: ${date}`); // Add logging
+  return date;
 }
 
 exports.handler = async function(event, context) {
@@ -132,6 +138,7 @@ exports.handler = async function(event, context) {
 
     // Format the registration (remove spaces, uppercase)
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
+    console.log(`Enabling notifications for ${formattedReg}`); // Add logging
 
     // Connect to MongoDB
     const db = await connectToDatabase();
@@ -144,6 +151,7 @@ exports.handler = async function(event, context) {
 
     // If the registration is already being monitored, just return success
     if (existingRecord) {
+      console.log(`Notifications for ${formattedReg} are already enabled`); // Add logging
       return {
         statusCode: 200,
         headers,
@@ -157,6 +165,7 @@ exports.handler = async function(event, context) {
     // Fetch the initial MOT history to establish a baseline
     let initialMotTestDate = null;
     let vehicleInfo = {};
+    let motTests = [];
     
     try {
       // Get current MOT history from the API
@@ -164,6 +173,9 @@ exports.handler = async function(event, context) {
       
       // Extract the latest MOT test date (if any)
       initialMotTestDate = getLatestMotTestDate(vehicleData);
+      
+      // Store the MOT tests array if it exists
+      motTests = vehicleData.motTests || [];
       
       // Extract basic vehicle info for reference
       vehicleInfo = {
@@ -174,19 +186,24 @@ exports.handler = async function(event, context) {
       
       console.log(`Initialized ${formattedReg} with baseline MOT date: ${initialMotTestDate || 'None'}`);
     } catch (error) {
-      // If we can't fetch the MOT history, continue but log the error
       console.error(`Could not fetch initial MOT history for ${formattedReg}:`, error);
+      // Continue with null initialMotTestDate if we can't fetch the data
     }
 
     // Store the registration in the database with baseline MOT date
-    await notificationsCollection.insertOne({
+    const record = {
       registration: formattedReg,
       lastCheckedDate: new Date().toISOString(),
       lastMotTestDate: initialMotTestDate, // Use the fetched date (or null if not found)
       vehicleInfo: vehicleInfo,  // Store basic vehicle info
+      motTests: motTests, // Store the actual MOT tests
       enabled: true,
       createdAt: new Date().toISOString()
-    });
+    };
+    
+    console.log(`Storing notification record for ${formattedReg}:`, record); // Add logging
+    
+    await notificationsCollection.insertOne(record);
 
     return {
       statusCode: 200,

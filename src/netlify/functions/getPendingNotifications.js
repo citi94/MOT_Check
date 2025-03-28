@@ -34,6 +34,8 @@ exports.handler = async (event) => {
     // Format the registration (remove spaces, uppercase)
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
     
+    console.log(`Checking for pending notifications for ${formattedReg}`); // Add logging
+
     const db = await connectToDatabase();
     const collection = db.collection('notifications');
     
@@ -42,6 +44,7 @@ exports.handler = async (event) => {
     });
     
     if (!record) {
+      console.log(`No notification record found for ${formattedReg}`);
       return {
         statusCode: 404,
         headers,
@@ -51,6 +54,12 @@ exports.handler = async (event) => {
         })
       };
     }
+    
+    console.log(`Found notification record for ${formattedReg}:`, {
+      hasUpdate: !!record.hasUpdate,
+      lastCheckedDate: record.lastCheckedDate,
+      lastMotTestDate: record.lastMotTestDate
+    }); // Add detailed logging
     
     if (record.hasUpdate) {
       console.log(`Pending update found for ${formattedReg}`);

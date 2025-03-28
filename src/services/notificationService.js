@@ -83,7 +83,9 @@ export const checkForUpdates = async (registration) => {
   
   try {
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
-    const response = await fetch(`/api/getPendingNotifications?registration=${formattedReg}`, {
+    
+    // Use /.netlify/functions/ path instead of /api/ for consistency
+    const response = await fetch(`/.netlify/functions/getPendingNotifications?registration=${formattedReg}`, {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -100,6 +102,7 @@ export const checkForUpdates = async (registration) => {
     }
     
     const data = await response.json();
+    console.log(`Got update check response for ${formattedReg}:`, data); // Add detailed logging
     return data;
   } catch (error) {
     console.error(`Error checking for updates for ${registration}:`, error);
@@ -113,7 +116,8 @@ export const checkForUpdates = async (registration) => {
  */
 export const getMonitoredVehicles = async () => {
   try {
-    const response = await fetch('/api/getMonitoredVehicles', {
+    // Use /.netlify/functions/ path instead of /api/ for consistency
+    const response = await fetch('/.netlify/functions/getMonitoredVehicles', {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       }
@@ -124,6 +128,7 @@ export const getMonitoredVehicles = async () => {
     }
     
     const data = await response.json();
+    console.log('Monitored vehicles fetched:', data); // Add logging
     return data.vehicles || [];
   } catch (error) {
     console.error('Error fetching monitored vehicles:', error);
@@ -138,6 +143,7 @@ class UpdatePoller {
   constructor() {
     this.intervals = new Map(); // Map of registration -> intervalId
     this.handlers = new Map();  // Map of registration -> callback function
+    this.lastCheckedCallbacks = new Map(); // Map of registration -> lastChecked callback
   }
   
   /**
@@ -145,15 +151,25 @@ class UpdatePoller {
    * @param {string} registration - Vehicle registration to poll for
    * @param {Function} onUpdate - Callback when an update is found
    * @param {number} intervalSeconds - Polling interval in seconds
+   * @param {Function} onPollComplete - Optional callback after every poll (for updating lastChecked)
    */
-  startPolling(registration, onUpdate, intervalSeconds = 60) {
+  startPolling(registration, onUpdate, intervalSeconds = 60, onPollComplete = null) {
     this.stopPolling(registration);
     
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
     this.handlers.set(formattedReg, onUpdate);
+    if (onPollComplete) {
+      this.lastCheckedCallbacks.set(formattedReg, onPollComplete);
+    }
     
     const pollFn = async () => {
+      console.log(`Polling for updates for ${formattedReg}...`); // Add logging
       const updateInfo = await checkForUpdates(formattedReg);
+      
+      // Always call onPollComplete if provided, to update the "Last checked" timestamp
+      if (onPollComplete && updateInfo) {
+        onPollComplete(formattedReg, updateInfo.lastCheckedDate);
+      }
       
       if (updateInfo && updateInfo.hasUpdate) {
         console.log(`Update found for ${formattedReg}`, updateInfo);
@@ -170,6 +186,7 @@ class UpdatePoller {
     const intervalId = setInterval(pollFn, intervalSeconds * 1000);
     this.intervals.set(formattedReg, intervalId);
     
+    console.log(`Started polling for ${formattedReg} every ${intervalSeconds} seconds`); // Add logging
     return intervalId;
   }
   
@@ -186,6 +203,8 @@ class UpdatePoller {
       clearInterval(this.intervals.get(formattedReg));
       this.intervals.delete(formattedReg);
       this.handlers.delete(formattedReg);
+      this.lastCheckedCallbacks.delete(formattedReg);
+      console.log(`Stopped polling for ${formattedReg}`); // Add logging
       return true;
     }
     return false;
@@ -196,12 +215,15 @@ class UpdatePoller {
    * @param {Array<string>} registrations - List of registrations
    * @param {Function} onUpdate - Common update handler
    * @param {number} intervalSeconds - Polling interval in seconds
+   * @param {Function} onPollComplete - Optional callback after every poll
    */
-  startPollingMultiple(registrations, onUpdate, intervalSeconds = 60) {
+  startPollingMultiple(registrations, onUpdate, intervalSeconds = 60, onPollComplete = null) {
     if (!registrations || !registrations.length) return;
     
+    console.log(`Starting polling for ${registrations.length} registrations every ${intervalSeconds} seconds`); // Add logging
+    
     registrations.forEach(reg => {
-      this.startPolling(reg, onUpdate, intervalSeconds);
+      this.startPolling(reg, onUpdate, intervalSeconds, onPollComplete);
     });
   }
   
@@ -216,6 +238,7 @@ class UpdatePoller {
     
     this.intervals.clear();
     this.handlers.clear();
+    this.lastCheckedCallbacks.clear();
   }
   
   /**

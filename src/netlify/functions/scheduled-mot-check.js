@@ -26,6 +26,7 @@ async function getAccessToken() {
   }
 
   try {
+    console.log('Requesting new access token...');
     // Request new token
     const response = await axios.post(TOKEN_URL, 
       `grant_type=client_credentials&scope=${encodeURIComponent(SCOPE)}`,
@@ -47,6 +48,7 @@ async function getAccessToken() {
     // Using 55 minutes gives us a 5-minute buffer
     tokenExpiry = now + (55 * 60 * 1000);
     
+    console.log('Successfully obtained new access token');
     return cachedToken;
   } catch (error) {
     console.error('Error getting access token:', error.response?.data || error.message);
@@ -61,6 +63,7 @@ async function getMotHistory(registration) {
   const token = await getAccessToken();
 
   try {
+    console.log(`Fetching MOT history for ${registration}`);
     const response = await axios.get(
       `${MOT_API_URL}/v1/trade/vehicles/registration/${registration}`,
       {
@@ -72,6 +75,7 @@ async function getMotHistory(registration) {
       }
     );
     
+    console.log(`Successfully fetched MOT history for ${registration}`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching MOT history for ${registration}:`, error.response?.data || error.message);
@@ -80,16 +84,21 @@ async function getMotHistory(registration) {
 }
 
 /**
- * Gets the latest MOT test result from vehicle data
+ * Gets the latest MOT test from vehicle data
  */
 function getLatestMotTest(vehicleData) {
-  if (!vehicleData.motTests || vehicleData.motTests.length === 0) {
+  if (!vehicleData || !vehicleData.motTests || vehicleData.motTests.length === 0) {
+    console.log('No MOT tests found in vehicle data');
     return null;
   }
   
   // Find the latest test by completedDate
-  return vehicleData.motTests
-    .sort((a, b) => new Date(b.completedDate) - new Date(a.completedDate))[0];
+  const sortedTests = vehicleData.motTests.sort(
+    (a, b) => new Date(b.completedDate) - new Date(a.completedDate)
+  );
+  
+  console.log(`Found ${sortedTests.length} MOT tests, latest date: ${sortedTests[0].completedDate}`);
+  return sortedTests[0];
 }
 
 /**
@@ -131,6 +140,7 @@ const handler = async (event) => {
     
     for (let i = 0; i < registrations.length; i += batchSize) {
       const batch = registrations.slice(i, i + batchSize);
+      console.log(`Processing batch ${Math.floor(i/batchSize) + 1} of ${Math.ceil(registrations.length/batchSize)}`);
       
       // Process each batch sequentially to avoid rate limits
       for (const reg of batch) {
@@ -144,6 +154,17 @@ const handler = async (event) => {
           
           if (!latestMotTest) {
             console.log(`No MOT tests found for ${reg.registration}`);
+            
+            // Still update the last checked time even if no MOT tests found
+            await collection.updateOne(
+              { registration: reg.registration },
+              { 
+                $set: { 
+                  lastCheckedDate: new Date().toISOString()
+                }
+              }
+            );
+            
             continue;
           }
           
@@ -156,8 +177,28 @@ const handler = async (event) => {
           console.log(`Last MOT test date in DB: ${lastMotTestDate || 'None'}`);
           console.log(`Latest MOT test date from API: ${latestMotTestDate || 'None'}`);
           
-          // Determine if there's an update
-          if (latestMotTestDate && (!lastMotTestDate || new Date(latestMotTestDate) > new Date(lastMotTestDate))) {
+          // Determine if there's an update - handle the case where lastMotTestDate could be null
+          let hasUpdate = false;
+          
+          if (latestMotTestDate) {
+            if (!lastMotTestDate) {
+              hasUpdate = true;
+              console.log(`First MOT test detected for ${reg.registration}`);
+            } else {
+              // Convert dates to timestamps for accurate comparison
+              const lastTestTime = new Date(lastMotTestDate).getTime();
+              const latestTestTime = new Date(latestMotTestDate).getTime();
+              
+              if (latestTestTime > lastTestTime) {
+                hasUpdate = true;
+                console.log(`New MOT test detected for ${reg.registration}`);
+              } else {
+                console.log(`No new MOT tests for ${reg.registration}`);
+              }
+            }
+          }
+          
+          if (hasUpdate) {
             console.log(`Update detected for ${reg.registration}!`);
             results.updated++;
             
@@ -200,6 +241,21 @@ const handler = async (event) => {
         } catch (error) {
           console.error(`Error checking ${reg.registration}:`, error);
           results.errors++;
+          
+          // Still update the last checked time even if there was an error
+          try {
+            await collection.updateOne(
+              { registration: reg.registration },
+              { 
+                $set: { 
+                  lastCheckedDate: new Date().toISOString(),
+                  lastCheckError: error.message || 'Unknown error'
+                }
+              }
+            );
+          } catch (dbError) {
+            console.error(`Failed to update last checked time for ${reg.registration}:`, dbError);
+          }
         }
       }
       

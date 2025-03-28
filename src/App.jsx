@@ -15,6 +15,14 @@ const App = () => {
   const [pollingInterval, setPollingInterval] = useState(60);
   const [statusMessage, setStatusMessage] = useState('');
   
+  // Handle updating the last checked timestamp
+  const handlePollComplete = useCallback((registration, checkTime) => {
+    console.log(`Poll completed for ${registration} at ${checkTime}`);
+    if (registration === currentReg) {
+      setLastChecked(checkTime ? new Date(checkTime) : new Date());
+    }
+  }, [currentReg]);
+  
   // Handle MOT update - defined early since it's used in other hooks
   const handleMotUpdate = useCallback((updateInfo) => {
     // Only handle if there's actually an update
@@ -48,7 +56,7 @@ const App = () => {
         window.focus();
       }
     });
-  }, [currentReg]); // currentReg is the only dependency needed here
+  }, [currentReg]); // currentReg is needed as dependency
   
   // Set up polling for all registrations
   const setupPollingForRegistrations = useCallback((registrations) => {
@@ -58,10 +66,16 @@ const App = () => {
     updatePoller.stopAll();
     
     // Start polling for all registrations with a common update handler
-    updatePoller.startPollingMultiple(registrations, handleMotUpdate, pollingInterval);
+    // Pass handlePollComplete as the 4th parameter to update lastChecked
+    updatePoller.startPollingMultiple(
+      registrations, 
+      handleMotUpdate, 
+      pollingInterval,
+      handlePollComplete
+    );
     
     setStatusMessage(`Checking for updates every ${pollingInterval} seconds`);
-  }, [pollingInterval, handleMotUpdate]); // Added handleMotUpdate as dependency
+  }, [pollingInterval, handleMotUpdate, handlePollComplete]);
   
   // Load monitored registrations from server on initial load
   useEffect(() => {
@@ -71,11 +85,13 @@ const App = () => {
         if (vehicles && vehicles.length > 0) {
           // Extract registrations from vehicles data
           const registrations = vehicles.map(v => v.registration);
+          console.log('Loaded monitored registrations:', registrations);
           setNotifiedRegs(registrations);
           
           // Start polling for updates for each registration
           setupPollingForRegistrations(registrations);
         } else {
+          console.warn('No monitored vehicles returned from server, checking localStorage');
           // If no vehicles returned, try to load from localStorage as fallback
           const savedNotifiedRegs = localStorage.getItem('notifiedRegs');
           if (savedNotifiedRegs) {
@@ -102,7 +118,7 @@ const App = () => {
     return () => {
       updatePoller.stopAll();
     };
-  }, [setupPollingForRegistrations]); // Added setupPollingForRegistrations as dependency
+  }, [setupPollingForRegistrations]);
   
   // Save notified registrations to localStorage as a backup
   useEffect(() => {
@@ -121,7 +137,7 @@ const App = () => {
       
       // Add cache-busting query param to avoid stale data
       const timestamp = new Date().getTime();
-      const response = await fetch(`/api/getMotHistory?registration=${formattedReg}&_=${timestamp}`, {
+      const response = await fetch(`/.netlify/functions/getMotHistory?registration=${formattedReg}&_=${timestamp}`, {
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
@@ -179,7 +195,7 @@ const App = () => {
       }
       
       const endpoint = enable ? 'enableNotification' : 'disableNotification';
-      const response = await fetch(`/api/${endpoint}`, {
+      const response = await fetch(`/.netlify/functions/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ registration })
@@ -196,7 +212,12 @@ const App = () => {
           setNotifiedRegs(updatedRegs);
           
           // Start polling for this registration
-          updatePoller.startPolling(registration, handleMotUpdate, pollingInterval);
+          updatePoller.startPolling(
+            registration, 
+            handleMotUpdate, 
+            pollingInterval,
+            handlePollComplete
+          );
           
           // Show a confirmation notification
           showNotification('MOT Notifications Enabled', {
@@ -303,7 +324,7 @@ const App = () => {
                 {isNotificationEnabled(currentReg) && (
                   <div className="mt-2 bg-blue-50 border border-blue-200 rounded p-2">
                     <p className="text-xs text-blue-800">
-                      <span className="font-medium">Real-time monitoring:</span> Our server checks for MOT updates every minute
+                      <span className="font-medium">Real-time monitoring:</span> Our server checks for MOT updates every hour
                     </p>
                   </div>
                 )}
@@ -358,7 +379,7 @@ const App = () => {
                   </select>
                   
                   <div className="ml-2 text-xs text-gray-500">
-                    Server checks every minute
+                    Server checks every hour
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
