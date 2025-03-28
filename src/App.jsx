@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
 import RegistrationInput from './components/RegistrationInput';
 import MOTHistory from './components/MOTHistory';
@@ -15,6 +15,9 @@ const App = () => {
   const [lastMotUpdate, setLastMotUpdate] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(60);
   const [statusMessage, setStatusMessage] = useState('');
+  
+  // Create a ref to store the fetchVehicleData function to avoid dependency cycles
+  const fetchVehicleDataRef = useRef(null);
   
   // Handle updating the last checked timestamp - improved to handle formatting differences
   const handlePollComplete = useCallback((registration, checkTime) => {
@@ -33,6 +36,82 @@ const App = () => {
     }
   }, [currentReg]);
   
+  // Extract the latest MOT test date from vehicle data
+  const getLatestMotTestDate = useCallback((vehicleData) => {
+    if (!vehicleData || !vehicleData.motTests || vehicleData.motTests.length === 0) {
+      return null;
+    }
+    
+    // Find the latest test by completedDate
+    const sortedTests = [...vehicleData.motTests].sort(
+      (a, b) => new Date(b.completedDate) - new Date(a.completedDate)
+    );
+    
+    return sortedTests[0].completedDate;
+  }, []);
+  
+  // Define fetchVehicleData early, but we'll refer to it through a ref to avoid dependency cycles
+  const fetchVehicleData = async (registration) => {
+    if (!registration) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Format registration consistently
+      const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
+      
+      // Add cache-busting query param to avoid stale data
+      const timestamp = new Date().getTime();
+      const response = await fetch(`/api/getMotHistory?registration=${formattedReg}&_=${timestamp}`, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+      
+      const data = await response.json();
+      
+      // Check for API error responses
+      if (!response.ok) {
+        let errorMessage = 'Failed to fetch vehicle data';
+        
+        if (data.message) {
+          errorMessage = data.message;
+        } else if (response.status === 404) {
+          errorMessage = `No vehicle found with registration ${formattedReg}`;
+        } else if (response.status === 401 || response.status === 403) {
+          errorMessage = 'Authentication error - please try again later';
+        } else if (response.status >= 500) {
+          errorMessage = 'Server error - please try again later';
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      setVehicleData(data);
+      setCurrentReg(formattedReg);
+      setLastChecked(new Date());
+      
+      // Set the last MOT update date
+      const latestMotDate = getLatestMotTestDate(data);
+      if (latestMotDate) {
+        setLastMotUpdate(new Date(latestMotDate));
+      }
+      
+    } catch (err) {
+      console.error('Error fetching MOT data:', err);
+      setError(err.message || 'An unknown error occurred');
+      setVehicleData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Store the fetchVehicleData function in the ref after it's defined
+  fetchVehicleDataRef.current = fetchVehicleData;
+  
   // Handle MOT update - defined early since it's used in other hooks
   const handleMotUpdate = useCallback((updateInfo) => {
     // Only handle if there's actually an update
@@ -46,8 +125,8 @@ const App = () => {
     const normalizedUpdateReg = registration.replace(/\s+/g, '').toUpperCase();
     const normalizedCurrentReg = currentReg.replace(/\s+/g, '').toUpperCase();
     
-    if (normalizedUpdateReg === normalizedCurrentReg) {
-      fetchVehicleData(registration);
+    if (normalizedUpdateReg === normalizedCurrentReg && fetchVehicleDataRef.current) {
+      fetchVehicleDataRef.current(registration);
     }
     
     // Show a notification about the update
@@ -65,11 +144,13 @@ const App = () => {
       vibrate: [200, 100, 200, 100, 200],
       data: { registration },
       onClick: () => {
-        fetchVehicleData(registration);
+        if (fetchVehicleDataRef.current) {
+          fetchVehicleDataRef.current(registration);
+        }
         window.focus();
       }
     });
-  }, [currentReg]); // currentReg is needed as dependency
+  }, [currentReg]); // No need to include fetchVehicleData as we use the ref
   
   // Set up polling for all registrations
   const setupPollingForRegistrations = useCallback((registrations) => {
@@ -137,78 +218,6 @@ const App = () => {
   useEffect(() => {
     localStorage.setItem('notifiedRegs', JSON.stringify(notifiedRegs));
   }, [notifiedRegs]);
-  
-  // Extract the latest MOT test date from vehicle data
-  const getLatestMotTestDate = (vehicleData) => {
-    if (!vehicleData || !vehicleData.motTests || vehicleData.motTests.length === 0) {
-      return null;
-    }
-    
-    // Find the latest test by completedDate
-    const sortedTests = [...vehicleData.motTests].sort(
-      (a, b) => new Date(b.completedDate) - new Date(a.completedDate)
-    );
-    
-    return sortedTests[0].completedDate;
-  };
-  
-  const fetchVehicleData = async (registration) => {
-    if (!registration) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Format registration consistently
-      const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
-      
-      // Add cache-busting query param to avoid stale data
-      const timestamp = new Date().getTime();
-      const response = await fetch(`/api/getMotHistory?registration=${formattedReg}&_=${timestamp}`, {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      });
-      
-      const data = await response.json();
-      
-      // Check for API error responses
-      if (!response.ok) {
-        let errorMessage = 'Failed to fetch vehicle data';
-        
-        if (data.message) {
-          errorMessage = data.message;
-        } else if (response.status === 404) {
-          errorMessage = `No vehicle found with registration ${formattedReg}`;
-        } else if (response.status === 401 || response.status === 403) {
-          errorMessage = 'Authentication error - please try again later';
-        } else if (response.status >= 500) {
-          errorMessage = 'Server error - please try again later';
-        }
-        
-        throw new Error(errorMessage);
-      }
-      
-      setVehicleData(data);
-      setCurrentReg(formattedReg);
-      setLastChecked(new Date());
-      
-      // Set the last MOT update date
-      const latestMotDate = getLatestMotTestDate(data);
-      if (latestMotDate) {
-        setLastMotUpdate(new Date(latestMotDate));
-      }
-      
-    } catch (err) {
-      console.error('Error fetching MOT data:', err);
-      setError(err.message || 'An unknown error occurred');
-      setVehicleData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
   
   // Force refresh data from API
   const refreshData = () => {
