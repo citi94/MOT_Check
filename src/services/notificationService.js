@@ -84,8 +84,8 @@ export const checkForUpdates = async (registration) => {
   try {
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
     
-    // Use /.netlify/functions/ path instead of /api/ for consistency
-    const response = await fetch(`/.netlify/functions/getPendingNotifications?registration=${formattedReg}`, {
+    // Use /api/ path which will be redirected to /.netlify/functions/ by Netlify
+    const response = await fetch(`/api/getPendingNotifications?registration=${formattedReg}`, {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -116,8 +116,8 @@ export const checkForUpdates = async (registration) => {
  */
 export const getMonitoredVehicles = async () => {
   try {
-    // Use /.netlify/functions/ path instead of /api/ for consistency
-    const response = await fetch('/.netlify/functions/getMonitoredVehicles', {
+    // Use /api/ path which will be redirected to /.netlify/functions/ by Netlify
+    const response = await fetch('/api/getMonitoredVehicles', {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       }

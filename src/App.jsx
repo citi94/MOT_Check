@@ -137,7 +137,7 @@ const App = () => {
       
       // Add cache-busting query param to avoid stale data
       const timestamp = new Date().getTime();
-      const response = await fetch(`/.netlify/functions/getMotHistory?registration=${formattedReg}&_=${timestamp}`, {
+      const response = await fetch(`/api/getMotHistory?registration=${formattedReg}&_=${timestamp}`, {
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
@@ -195,7 +195,7 @@ const App = () => {
       }
       
       const endpoint = enable ? 'enableNotification' : 'disableNotification';
-      const response = await fetch(`/.netlify/functions/${endpoint}`, {
+      const response = await fetch(`/api/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ registration })

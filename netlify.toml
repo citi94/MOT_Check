@@ -9,15 +9,16 @@
 [context.production.environment]
   NODE_ENV = "production"
 
-# Fix: Corrected scheduled function configuration
+# Fix: Correctly configured scheduled function
 [functions."scheduled-mot-check"]
   schedule = "@hourly"
 
-# Redirect all API requests to Netlify Functions
+# Redirect all API requests to Netlify Functions - ensure this is working
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
+  force = true # Force this redirect to always happen
 
 # Redirect all other requests to index.html for client-side routing
 [[redirects]]

@@ -19,6 +19,7 @@ exports.handler = async (event) => {
   }
   
   try {
+    console.log('Getting monitored vehicles from database');
     const db = await connectToDatabase();
     const collection = db.collection('notifications');
     
@@ -35,6 +36,8 @@ exports.handler = async (event) => {
         }
       }
     ).toArray();
+    
+    console.log(`Found ${records.length} monitored vehicles`);
     
     // Format the response
     const vehicles = records.map(record => ({
