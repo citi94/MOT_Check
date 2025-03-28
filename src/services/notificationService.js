@@ -187,6 +187,10 @@ class UpdatePoller {
     
     const pollFn = async () => {
       console.log(`Polling for updates for ${formattedReg}...`);
+      
+      // Generate current timestamp immediately when poll starts - this is the actual check time
+      const pollStartTime = new Date().toISOString();
+      
       try {
         const updateInfo = await checkForUpdates(formattedReg);
         
@@ -197,9 +201,9 @@ class UpdatePoller {
         // This ensures the "Last checked" timestamp is always updated
         if (onPollComplete) {
           console.log(`Calling onPollComplete for ${formattedReg}`);
-          // Pass the current time if no update info is available
-          const checkTime = updateInfo?.lastCheckedDate || new Date().toISOString();
-          onPollComplete(formattedReg, checkTime);
+          // IMPORTANT FIX: Always use the current timestamp, not the one from the server
+          // This ensures the UI shows when the check actually happened
+          onPollComplete(formattedReg, pollStartTime);
         }
         
         if (updateInfo && updateInfo.hasUpdate) {
@@ -218,7 +222,7 @@ class UpdatePoller {
         // Always call onPollComplete even if there's an error
         if (onPollComplete) {
           console.log(`Calling onPollComplete after error for ${formattedReg}`);
-          onPollComplete(formattedReg, new Date().toISOString());
+          onPollComplete(formattedReg, pollStartTime);
         }
         
         // If exceeded MAX_ERRORS, back off but don't stop polling completely
