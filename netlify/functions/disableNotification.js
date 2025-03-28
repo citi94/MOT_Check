@@ -1,6 +1,6 @@
 // netlify/functions/disableNotification.js
 
-const { connectToDatabase } = require('./utils/mongodb');
+const { connectToDatabase } = require('../../src/netlify/functions/utils/mongodb');
 
 exports.handler = async function(event, context) {
   // CORS headers

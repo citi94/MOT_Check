@@ -20,10 +20,16 @@
   status = 200
   force = true # Force this redirect to always happen
 
-# Additional explicit redirects for specific functions
+# Additional explicit redirects for specific functions that were having issues
 [[redirects]]
   from = "/api/getMonitoredVehicles"
   to = "/.netlify/functions/getMonitoredVehicles"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/getPendingNotifications"
+  to = "/.netlify/functions/getPendingNotifications"
   status = 200
   force = true
 

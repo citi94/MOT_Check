@@ -84,14 +84,22 @@ export const checkForUpdates = async (registration) => {
   try {
     const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
     
-    // Use /api/ path which will be redirected to /.netlify/functions/ by Netlify
-    const response = await fetch(`/api/getPendingNotifications?registration=${formattedReg}`, {
+    // Add cache busting parameter and explicit headers to prevent caching
+    const timestamp = new Date().getTime();
+    const url = `/api/getPendingNotifications?registration=${formattedReg}&_=${timestamp}`;
+    
+    console.log(`Checking for updates for ${formattedReg} at ${url}`);
+    
+    const response = await fetch(url, {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0'
       }
     });
+    
+    // Detailed logging about the response
+    console.log(`Got response for ${formattedReg}: status=${response.status}, ok=${response.ok}`);
     
     if (!response.ok) {
       if (response.status === 404) {
@@ -102,7 +110,7 @@ export const checkForUpdates = async (registration) => {
     }
     
     const data = await response.json();
-    console.log(`Got update check response for ${formattedReg}:`, data); // Add detailed logging
+    console.log(`Got update check response for ${formattedReg}:`, data);
     return data;
   } catch (error) {
     console.error(`Error checking for updates for ${registration}:`, error);
@@ -116,19 +124,29 @@ export const checkForUpdates = async (registration) => {
  */
 export const getMonitoredVehicles = async () => {
   try {
-    // Use /api/ path which will be redirected to /.netlify/functions/ by Netlify
-    const response = await fetch('/api/getMonitoredVehicles', {
+    // Add cache busting parameter and explicit headers to prevent caching
+    const timestamp = new Date().getTime();
+    const url = `/api/getMonitoredVehicles?_=${timestamp}`;
+    
+    console.log(`Fetching monitored vehicles from ${url}`);
+    
+    const response = await fetch(url, {
       headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
       }
     });
+    
+    // Detailed logging about the response
+    console.log(`Got monitored vehicles response: status=${response.status}, ok=${response.ok}`);
     
     if (!response.ok) {
       throw new Error(`Error status ${response.status}: ${response.statusText}`);
     }
     
     const data = await response.json();
-    console.log('Monitored vehicles fetched:', data); // Add logging
+    console.log('Monitored vehicles fetched:', data);
     return data.vehicles || [];
   } catch (error) {
     console.error('Error fetching monitored vehicles:', error);
@@ -144,6 +162,8 @@ class UpdatePoller {
     this.intervals = new Map(); // Map of registration -> intervalId
     this.handlers = new Map();  // Map of registration -> callback function
     this.lastCheckedCallbacks = new Map(); // Map of registration -> lastChecked callback
+    this.errorCounts = new Map(); // Track errors for each registration
+    this.MAX_ERRORS = 3; // Maximum consecutive errors before backing off
   }
   
   /**
@@ -162,19 +182,40 @@ class UpdatePoller {
       this.lastCheckedCallbacks.set(formattedReg, onPollComplete);
     }
     
+    // Reset error count for this registration
+    this.errorCounts.set(formattedReg, 0);
+    
     const pollFn = async () => {
-      console.log(`Polling for updates for ${formattedReg}...`); // Add logging
-      const updateInfo = await checkForUpdates(formattedReg);
-      
-      // Always call onPollComplete if provided, to update the "Last checked" timestamp
-      if (onPollComplete && updateInfo) {
-        onPollComplete(formattedReg, updateInfo.lastCheckedDate);
-      }
-      
-      if (updateInfo && updateInfo.hasUpdate) {
-        console.log(`Update found for ${formattedReg}`, updateInfo);
-        if (onUpdate) {
-          onUpdate(updateInfo);
+      console.log(`Polling for updates for ${formattedReg}...`);
+      try {
+        const updateInfo = await checkForUpdates(formattedReg);
+        
+        // Reset error count on success
+        this.errorCounts.set(formattedReg, 0);
+        
+        // Always call onPollComplete if provided, to update the "Last checked" timestamp
+        if (onPollComplete && updateInfo) {
+          onPollComplete(formattedReg, updateInfo.lastCheckedDate);
+        }
+        
+        if (updateInfo && updateInfo.hasUpdate) {
+          console.log(`Update found for ${formattedReg}`, updateInfo);
+          if (onUpdate) {
+            onUpdate(updateInfo);
+          }
+        }
+      } catch (error) {
+        // Increment error count
+        const currentErrors = this.errorCounts.get(formattedReg) || 0;
+        this.errorCounts.set(formattedReg, currentErrors + 1);
+        
+        console.error(`Error polling ${formattedReg} (error #${currentErrors + 1}):`, error);
+        
+        // If exceeded MAX_ERRORS, back off but don't stop polling completely
+        if (currentErrors + 1 >= this.MAX_ERRORS) {
+          console.warn(`Backing off polling for ${formattedReg} due to consecutive errors`);
+          // We don't stop polling, just let the interval continue at the normal rate
+          // This gives the server a chance to recover
         }
       }
     };
@@ -186,7 +227,7 @@ class UpdatePoller {
     const intervalId = setInterval(pollFn, intervalSeconds * 1000);
     this.intervals.set(formattedReg, intervalId);
     
-    console.log(`Started polling for ${formattedReg} every ${intervalSeconds} seconds`); // Add logging
+    console.log(`Started polling for ${formattedReg} every ${intervalSeconds} seconds`);
     return intervalId;
   }
   
@@ -204,7 +245,8 @@ class UpdatePoller {
       this.intervals.delete(formattedReg);
       this.handlers.delete(formattedReg);
       this.lastCheckedCallbacks.delete(formattedReg);
-      console.log(`Stopped polling for ${formattedReg}`); // Add logging
+      this.errorCounts.delete(formattedReg);
+      console.log(`Stopped polling for ${formattedReg}`);
       return true;
     }
     return false;
@@ -220,7 +262,7 @@ class UpdatePoller {
   startPollingMultiple(registrations, onUpdate, intervalSeconds = 60, onPollComplete = null) {
     if (!registrations || !registrations.length) return;
     
-    console.log(`Starting polling for ${registrations.length} registrations every ${intervalSeconds} seconds`); // Add logging
+    console.log(`Starting polling for ${registrations.length} registrations every ${intervalSeconds} seconds`);
     
     registrations.forEach(reg => {
       this.startPolling(reg, onUpdate, intervalSeconds, onPollComplete);
@@ -239,6 +281,7 @@ class UpdatePoller {
     this.intervals.clear();
     this.handlers.clear();
     this.lastCheckedCallbacks.clear();
+    this.errorCounts.clear();
   }
   
   /**
