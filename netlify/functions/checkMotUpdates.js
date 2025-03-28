@@ -1,7 +1,7 @@
 // netlify/functions/checkMotUpdates.js
 
 const axios = require('axios');
-const { connectToDatabase } = require('../../src/netlify/functions/utils/mongodb');
+const { connectToDatabase } = require('./utils/mongodb');
 
 // Constants for API URLs and credentials
 const MOT_API_URL = 'https://history.mot.api.gov.uk';
