@@ -3,38 +3,37 @@ import Header from './components/Header';
 import RegistrationInput from './components/RegistrationInput';
 import MOTHistory from './components/MOTHistory';
 import NotificationToggle from './components/NotificationToggle';
-import { requestNotificationPermission, showNotification, updatePoller, getMonitoredVehicles } from './services/notificationService';
+import { getDeviceId } from './services/pushNotificationService';
 
 const App = () => {
   const [currentReg, setCurrentReg] = useState('');
   const [vehicleData, setVehicleData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [notifiedRegs, setNotifiedRegs] = useState([]);
+  const [deviceNotifications, setDeviceNotifications] = useState(new Set());
   const [lastChecked, setLastChecked] = useState(null);
   const [lastMotUpdate, setLastMotUpdate] = useState(null);
-  const [pollingInterval, setPollingInterval] = useState(60);
-  const [statusMessage, setStatusMessage] = useState('');
   
   // Create a ref to store the fetchVehicleData function to avoid dependency cycles
   const fetchVehicleDataRef = useRef(null);
   
-  // Handle updating the last checked timestamp - improved to handle formatting differences
-  const handlePollComplete = useCallback((registration, checkTime) => {
-    // Use normalized formats for comparison to avoid case/whitespace issues
-    const normalizedPolledReg = registration.replace(/\s+/g, '').toUpperCase();
-    const normalizedCurrentReg = currentReg.replace(/\s+/g, '').toUpperCase();
-    
-    console.log(`Poll completed for ${registration} at ${checkTime}`);
-    console.log(`Comparing registrations: polled=${normalizedPolledReg}, current=${normalizedCurrentReg}`);
-    
-    if (normalizedPolledReg === normalizedCurrentReg) {
-      console.log(`Updating lastChecked for displayed registration ${currentReg}`);
-      setLastChecked(checkTime ? new Date(checkTime) : new Date());
-    } else {
-      console.log(`Not updating UI - current reg: ${currentReg}, poll reg: ${registration}`);
-    }
-  }, [currentReg]);
+  // Handle service worker messages (e.g., when user clicks notification)
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'LOAD_REGISTRATION') {
+        const registration = event.data.registration;
+        console.log('Loading registration from notification click:', registration);
+        if (fetchVehicleDataRef.current) {
+          fetchVehicleDataRef.current(registration);
+        }
+      }
+    };
+
+    navigator.serviceWorker?.addEventListener('message', handleMessage);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', handleMessage);
+    };
+  }, []);
   
   // Extract the latest MOT test date from vehicle data
   const getLatestMotTestDate = useCallback((vehicleData) => {
@@ -112,147 +111,38 @@ const App = () => {
   // Store the fetchVehicleData function in the ref after it's defined
   fetchVehicleDataRef.current = fetchVehicleData;
   
-  // Handle MOT update - defined early since it's used in other hooks
-  const handleMotUpdate = useCallback((updateInfo) => {
-    // Only handle if there's actually an update
-    if (!updateInfo || !updateInfo.hasUpdate) return;
-    
-    const { registration, details } = updateInfo;
-    
-    console.log(`MOT update found for ${registration}:`, details);
-    
-    // If this is the currently displayed vehicle, refresh the data
-    const normalizedUpdateReg = registration.replace(/\s+/g, '').toUpperCase();
-    const normalizedCurrentReg = currentReg.replace(/\s+/g, '').toUpperCase();
-    
-    if (normalizedUpdateReg === normalizedCurrentReg && fetchVehicleDataRef.current) {
-      fetchVehicleDataRef.current(registration);
+  // Load device notification subscriptions from localStorage
+  useEffect(() => {
+    try {
+      const savedNotifications = localStorage.getItem(`deviceNotifications_${getDeviceId()}`);
+      if (savedNotifications) {
+        setDeviceNotifications(new Set(JSON.parse(savedNotifications)));
+      }
+    } catch (error) {
+      console.error('Error loading device notifications:', error);
     }
-    
-    // Show a notification about the update
-    const testResult = details.testResult || 'UNKNOWN';
-    const make = details.vehicle?.make || '';
-    const model = details.vehicle?.model || '';
-    
-    const title = `MOT ${testResult === 'PASSED' ? 'Passed ✅' : 'Failed ❌'} - ${registration}`;
-    const body = `New MOT test recorded for your ${make} ${model}${testResult === 'PASSED' ? ' - Test passed!' : ' - Test failed!'}`;
-    
-    showNotification(title, {
-      body,
-      icon: '/favicon.ico',
-      requireInteraction: true,
-      vibrate: [200, 100, 200, 100, 200],
-      data: { registration },
-      onClick: () => {
-        if (fetchVehicleDataRef.current) {
-          fetchVehicleDataRef.current(registration);
-        }
-        window.focus();
-      }
-    });
-  }, [currentReg]); // No need to include fetchVehicleData as we use the ref
-  
-  // Set up polling for all registrations
-  const setupPollingForRegistrations = useCallback((registrations) => {
-    if (!registrations || !registrations.length) return;
-    
-    // Stop any existing polling
-    updatePoller.stopAll();
-    
-    // Start polling for all registrations with a common update handler
-    // Pass handlePollComplete as the 4th parameter to update lastChecked
-    updatePoller.startPollingMultiple(
-      registrations, 
-      handleMotUpdate, 
-      pollingInterval,
-      handlePollComplete
-    );
-    
-    setStatusMessage(`Checking for updates every ${pollingInterval} seconds`);
-  }, [pollingInterval, handleMotUpdate, handlePollComplete]);
-  
-  // Load monitored registrations from server on initial load
-  useEffect(() => {
-    const loadRegistrations = async () => {
-      try {
-        const vehicles = await getMonitoredVehicles();
-        if (vehicles && vehicles.length > 0) {
-          // Extract registrations from vehicles data
-          const registrations = vehicles.map(v => v.registration);
-          console.log('Loaded monitored registrations:', registrations);
-          setNotifiedRegs(registrations);
-          
-          // Start polling for updates for each registration
-          setupPollingForRegistrations(registrations);
-        } else {
-          console.warn('No monitored vehicles returned from server, checking localStorage');
-          // If no vehicles returned, try to load from localStorage as fallback
-          const savedNotifiedRegs = localStorage.getItem('notifiedRegs');
-          if (savedNotifiedRegs) {
-            const regs = JSON.parse(savedNotifiedRegs);
-            setNotifiedRegs(regs);
-            setupPollingForRegistrations(regs);
-          }
-        }
-      } catch (err) {
-        console.error('Error loading monitored vehicles:', err);
-        // Try localStorage as fallback
-        const savedNotifiedRegs = localStorage.getItem('notifiedRegs');
-        if (savedNotifiedRegs) {
-          const regs = JSON.parse(savedNotifiedRegs);
-          setNotifiedRegs(regs);
-          setupPollingForRegistrations(regs);
-        }
-      }
-    };
-    
-    loadRegistrations();
-    
-    // Enhanced cleanup on unmount - ensure all polling stops
-    return () => {
-      console.log('App component unmounting, stopping all polling...');
-      updatePoller.stopAll();
-      
-      // Additional cleanup for any remaining intervals
-      const activePolls = updatePoller.getActivePolls();
-      if (activePolls.length > 0) {
-        console.warn('Force cleaning remaining polls:', activePolls);
-        activePolls.forEach(reg => updatePoller.stopPolling(reg));
-      }
-    };
-  }, [setupPollingForRegistrations]);
-  
-  // Additional effect to handle page visibility changes and prevent memory leaks
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        console.log('Page hidden, reducing polling frequency...');
-        // Could implement reduced polling when page is hidden
-      } else {
-        console.log('Page visible, resuming normal polling...');
-        // Resume normal polling when page becomes visible
-      }
-    };
-    
-    const handleBeforeUnload = () => {
-      console.log('Page unloading, stopping all polling...');
-      updatePoller.stopAll();
-    };
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      updatePoller.stopAll();
-    };
   }, []);
-  
-  // Save notified registrations to localStorage as a backup
+
+  // Save device notification subscriptions to localStorage
   useEffect(() => {
-    localStorage.setItem('notifiedRegs', JSON.stringify(notifiedRegs));
-  }, [notifiedRegs]);
+    try {
+      localStorage.setItem(
+        `deviceNotifications_${getDeviceId()}`, 
+        JSON.stringify(Array.from(deviceNotifications))
+      );
+    } catch (error) {
+      console.error('Error saving device notifications:', error);
+    }
+  }, [deviceNotifications]);
+  
+  // Handle URL parameters for direct registration loading
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const regParam = urlParams.get('registration');
+    if (regParam && fetchVehicleDataRef.current) {
+      fetchVehicleDataRef.current(regParam);
+    }
+  }, []);
   
   // Force refresh data from API
   const refreshData = () => {
@@ -263,52 +153,20 @@ const App = () => {
   
   const toggleNotification = async (registration, enable) => {
     try {
-      // Check notification permission if enabling
-      if (enable) {
-        const permissionGranted = await requestNotificationPermission();
-        if (!permissionGranted) {
-          setError('You need to allow notifications to use this feature');
-          return;
-        }
-      }
-      
-      const endpoint = enable ? 'enableNotification' : 'disableNotification';
-      const response = await fetch(`/api/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ registration })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status} - ${response.statusText}`);
-      }
+      const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
       
       if (enable) {
-        // Add to notified registrations
-        if (!notifiedRegs.includes(registration)) {
-          const updatedRegs = [...notifiedRegs, registration];
-          setNotifiedRegs(updatedRegs);
-          
-          // Start polling for this registration
-          updatePoller.startPolling(
-            registration, 
-            handleMotUpdate, 
-            pollingInterval,
-            handlePollComplete
-          );
-          
-          // Show a confirmation notification
-          showNotification('MOT Notifications Enabled', {
-            body: `You will now receive notifications for ${registration} when new MOT tests are recorded`,
-            icon: '/favicon.ico'
-          });
-        }
+        // Add to device notifications
+        setDeviceNotifications(prev => new Set([...prev, formattedReg]));
+        console.log(`Enabled device notifications for ${formattedReg}`);
       } else {
-        // Remove from notified registrations
-        setNotifiedRegs(prev => prev.filter(reg => reg !== registration));
-        
-        // Stop polling for this registration
-        updatePoller.stopPolling(registration);
+        // Remove from device notifications
+        setDeviceNotifications(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(formattedReg);
+          return newSet;
+        });
+        console.log(`Disabled device notifications for ${formattedReg}`);
       }
       
     } catch (err) {
@@ -318,22 +176,10 @@ const App = () => {
   };
   
   const isNotificationEnabled = (registration) => {
-    return notifiedRegs.includes(registration);
+    const formattedReg = registration.replace(/\s+/g, '').toUpperCase();
+    return deviceNotifications.has(formattedReg);
   };
   
-  // Update polling interval when changed
-  const updatePollingIntervalHandler = (newInterval) => {
-    // Convert to number
-    const intervalValue = parseInt(newInterval, 10);
-    if (isNaN(intervalValue) || intervalValue < 10) return;
-    
-    setPollingInterval(intervalValue);
-    
-    // Restart polling with new interval
-    setupPollingForRegistrations(notifiedRegs);
-    
-    setStatusMessage(`Checking for updates every ${intervalValue} seconds`);
-  };
 
   // Format a date with both date and time
   const formatDateTime = (date) => {
@@ -419,7 +265,7 @@ const App = () => {
                 {isNotificationEnabled(currentReg) && (
                   <div className="mt-2 bg-blue-50 border border-blue-200 rounded p-2">
                     <p className="text-xs text-blue-800">
-                      <span className="font-medium">Real-time monitoring:</span> Our server checks for MOT updates every hour
+                      <span className="font-medium">✅ Background monitoring active:</span> This device will receive push notifications for {currentReg} even when your browser is closed.
                     </p>
                   </div>
                 )}
@@ -427,18 +273,16 @@ const App = () => {
             </div>
           )}
           
-          {notifiedRegs.length > 0 && (
+          {deviceNotifications.size > 0 && (
             <div className="mt-6 border-t pt-4">
-              <h2 className="text-lg font-semibold mb-2">Monitored Registrations</h2>
+              <h2 className="text-lg font-semibold mb-2">Device Notifications</h2>
               
-              {statusMessage && (
-                <div className="text-xs text-gray-600 mb-2">
-                  {statusMessage}
-                </div>
-              )}
+              <div className="text-xs text-gray-600 mb-2">
+                This device ({getDeviceId().substr(-8)}) will receive push notifications for:
+              </div>
               
               <ul className="space-y-2">
-                {notifiedRegs.map(reg => (
+                {Array.from(deviceNotifications).map(reg => (
                   <li key={reg} className="flex justify-between items-center bg-gray-50 p-2 rounded">
                     <button 
                       onClick={() => fetchVehicleData(reg)}
@@ -456,29 +300,11 @@ const App = () => {
                 ))}
               </ul>
               
-              <div className="mt-3 p-2 border border-gray-200 rounded bg-gray-50">
-                <h3 className="text-sm font-medium mb-2">Client-side update checking</h3>
-                <div className="flex items-center">
-                  <label htmlFor="polling-interval" className="text-sm mr-2">Check every:</label>
-                  <select 
-                    id="polling-interval"
-                    value={pollingInterval}
-                    onChange={(e) => updatePollingIntervalHandler(e.target.value)}
-                    className="border rounded text-sm p-1"
-                  >
-                    <option value="10">10 seconds</option>
-                    <option value="30">30 seconds</option>
-                    <option value="60">1 minute</option>
-                    <option value="120">2 minutes</option>
-                    <option value="300">5 minutes</option>
-                  </select>
-                  
-                  <div className="ml-2 text-xs text-gray-500">
-                    Server checks every hour
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Client-side checking allows you to get quick updates while this tab is open
+              <div className="mt-3 p-2 border border-gray-200 rounded bg-green-50">
+                <h3 className="text-sm font-medium mb-2">📱 Push Notifications Active</h3>
+                <p className="text-xs text-green-700">
+                  Your device will receive background notifications even when the browser is closed. 
+                  The server checks for MOT updates every hour.
                 </p>
               </div>
             </div>

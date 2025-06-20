@@ -92,70 +92,162 @@ self.addEventListener('fetch', event => {
   );
 });
 
-// Push event - handle push notifications
+
+// Push event - handle incoming push notifications from server
 self.addEventListener('push', event => {
-  console.log('Push received:', event);
+  console.log('Push notification received:', event);
   
-  let notificationData = {};
-  
-  try {
-    if (event.data) {
-      notificationData = event.data.json();
-    }
-  } catch (e) {
-    console.error('Failed to parse push data:', e);
-  }
-  
-  const title = notificationData.title || 'MOT Update';
-  const options = {
-    body: notificationData.body || 'There is an update for your vehicle MOT.',
+  let notificationData = {
+    title: 'MOT Update',
+    body: 'There is an update for your vehicle MOT.',
     icon: '/favicon.ico',
     badge: '/favicon.ico',
-    data: notificationData.data || {},
     requireInteraction: true,
-    vibrate: [200, 100, 200]
+    vibrate: [200, 100, 200, 100, 200],
+    data: {}
   };
   
-  event.waitUntil(
-    self.registration.showNotification(title, options)
-  );
-});
-
-// Notification click event
-self.addEventListener('notificationclick', event => {
-  console.log('Notification click:', event);
-  
-  event.notification.close();
-  
-  // This looks to see if the current is already open and focuses if it is
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window' })
-      .then(clientList => {
-        // Get notification data
-        const notificationData = event.notification.data;
-        const registration = notificationData.registration || '';
+  // Parse push data if available
+  if (event.data) {
+    try {
+      const pushData = event.data.json();
+      console.log('Push data:', pushData);
+      
+      // Validate push data structure
+      if (!pushData || !pushData.registration || !pushData.testResult) {
+        console.error('Invalid push data structure:', pushData);
+        // Still show a default notification if data is malformed
+        notificationData.title = 'MOT Update';
+        notificationData.body = 'New MOT test recorded for your vehicle';
+      } else {
+        // Extract notification details
+        const { registration, testResult, vehicle, previousDate, newDate } = pushData;
         
-        // Construct the URL with the registration if available
-        const url = registration ? `/?registration=${registration}` : '/';
+        // Create notification title and body
+        const passed = testResult === 'PASSED';
+        const title = `MOT ${passed ? 'Passed ✅' : 'Failed ❌'} - ${registration}`;
         
-        // If we have an open window, focus it
-        for (const client of clientList) {
-          if ('focus' in client) {
-            return client.focus();
+        let body = `New MOT test recorded for your vehicle`;
+        if (vehicle?.make && vehicle?.model) {
+          body = `New MOT test recorded for your ${vehicle.make} ${vehicle.model}`;
+        }
+        
+        if (passed) {
+          body += ' - Test passed!';
+        } else if (testResult === 'FAILED') {
+          body += ' - Test failed!';
+        }
+        
+        notificationData = {
+          title,
+          body,
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+          requireInteraction: true,
+          vibrate: [200, 100, 200, 100, 200],
+          data: {
+            registration,
+            testResult,
+            vehicle,
+            url: `/?registration=${registration}`
           }
+        };
+      }
+    } catch (error) {
+      console.error('Error parsing push data:', error);
+    }
+  }
+  
+  // Show the notification
+  event.waitUntil(
+    self.registration.showNotification(notificationData.title, {
+      body: notificationData.body,
+      icon: notificationData.icon,
+      badge: notificationData.badge,
+      requireInteraction: notificationData.requireInteraction,
+      vibrate: notificationData.vibrate,
+      data: notificationData.data,
+      actions: [
+        {
+          action: 'view',
+          title: 'View Details',
+          icon: '/favicon.ico'
+        },
+        {
+          action: 'dismiss',
+          title: 'Dismiss'
         }
-        
-        // Otherwise open a new window
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(url);
-        }
-      })
+      ]
+    })
   );
 });
 
-// Background sync event - DISABLED to prevent conflicts with client-side polling
-// The client-side UpdatePoller now handles all real-time notifications
-self.addEventListener('sync', event => {
-  console.log('Background sync event received but disabled to prevent notification conflicts');
-  // Service worker sync is now disabled - all notification polling handled client-side
+// Notification click event - handle user interaction with notifications
+self.addEventListener('notificationclick', event => {
+  console.log('Notification clicked:', event);
+  
+  const { action, notification } = event;
+  const notificationData = notification.data || {};
+  const registration = notificationData.registration || '';
+  
+  // Close the notification
+  notification.close();
+  
+  if (action === 'dismiss') {
+    // User dismissed the notification, do nothing
+    return;
+  }
+  
+  // Default action or 'view' action - open/focus the app
+  event.waitUntil(
+    self.clients.matchAll({ 
+      type: 'window',
+      includeUncontrolled: true 
+    }).then(clientList => {
+      // Construct the URL with the registration if available
+      const url = registration ? `/?registration=${registration}` : '/';
+      
+      // Look for an existing window to focus
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin)) {
+          return client.focus().then(() => {
+            // Send message to client to load the specific registration
+            if (registration) {
+              return client.postMessage({
+                type: 'LOAD_REGISTRATION',
+                registration: registration
+              });
+            }
+          }).catch(error => {
+            console.error('Failed to focus window or send message:', error);
+          });
+        }
+      }
+      
+      // No existing window found, open a new one
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(url);
+      }
+    }).catch(error => {
+      console.error('Failed to handle notification click:', error);
+    })
+  );
+});
+
+// Message event - handle messages from the main thread
+self.addEventListener('message', event => {
+  console.log('Service worker received message:', event.data);
+  
+  const { type, data } = event.data || {};
+  
+  if (type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// Notification close event
+self.addEventListener('notificationclose', event => {
+  console.log('Notification closed:', event.notification.data);
+  
+  // Could track notification dismissals here if needed
 });

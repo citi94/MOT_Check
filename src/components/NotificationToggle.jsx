@@ -1,33 +1,39 @@
 import React, { useEffect, useState } from 'react';
+import { 
+  isPushSupported, 
+  isUserSubscribed, 
+  subscribeToPush,
+  subscribeToVehicleNotifications,
+  unsubscribeFromVehicleNotifications,
+  getCurrentSubscription,
+  getDeviceId 
+} from '../services/pushNotificationService';
 
 const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
   const [notificationPermission, setNotificationPermission] = useState('default');
   const [isLoading, setIsLoading] = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [deviceSubscribed, setDeviceSubscribed] = useState(false);
 
   useEffect(() => {
+    // Check if push notifications are supported
+    setPushSupported(isPushSupported());
+    
     // Check notification permission status
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
+
+    // Check if this device is already subscribed to push notifications
+    checkSubscriptionStatus();
   }, []);
 
-  const requestNotificationPermission = async () => {
-    if (!('Notification' in window)) {
-      alert('This browser does not support notifications');
-      return false;
-    }
-    
-    if (Notification.permission === 'granted') {
-      return true;
-    }
-    
+  const checkSubscriptionStatus = async () => {
     try {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
-      return permission === 'granted';
+      const subscribed = await isUserSubscribed();
+      setDeviceSubscribed(subscribed);
     } catch (error) {
-      console.error('Error requesting notification permission:', error);
-      return false;
+      console.error('Error checking subscription status:', error);
     }
   };
 
@@ -36,45 +42,78 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
     
     try {
       if (!isEnabled) {
-        // Request permission if trying to enable notifications
-        const permissionGranted = await requestNotificationPermission();
-        if (!permissionGranted) {
-          alert('You need to allow notifications to use this feature');
-          setIsLoading(false);
-          return;
+        // Enabling notifications - subscribe to push notifications
+        console.log('Enabling notifications for', registration);
+        
+        try {
+          // Subscribe to push notifications for this device
+          const pushSubscription = await subscribeToPush();
+          console.log('Got push subscription:', pushSubscription);
+          
+          // Register this device to receive notifications for this vehicle
+          await subscribeToVehicleNotifications(registration, pushSubscription);
+          console.log('Successfully subscribed to vehicle notifications');
+          
+          // Update local state
+          setDeviceSubscribed(true);
+          setNotificationPermission('granted');
+          
+          // Call the parent onToggle to update the UI state
+          await onToggle(registration, true);
+        } catch (subscriptionError) {
+          console.error('Failed to set up push notifications:', subscriptionError);
+          // Update permission state even if push subscription failed
+          if (Notification.permission === 'denied') {
+            setNotificationPermission('denied');
+          }
+          throw new Error(`Failed to enable push notifications: ${subscriptionError.message}`);
         }
+        
+        // Show confirmation notification
+        if ('Notification' in window && Notification.permission === 'granted') {
+          setTimeout(() => {
+            new Notification('MOT Notifications Enabled', {
+              body: `You will now receive notifications on this device for ${registration} when new MOT tests are recorded`,
+              icon: '/favicon.ico',
+              requireInteraction: false,
+              silent: true,
+              data: { type: 'confirmation' }
+            });
+          }, 500);
+        }
+        
+      } else {
+        // Disabling notifications - unsubscribe from push notifications
+        console.log('Disabling notifications for', registration);
+        
+        const pushSubscription = await getCurrentSubscription();
+        if (pushSubscription) {
+          // Unregister this device from receiving notifications for this vehicle
+          await unsubscribeFromVehicleNotifications(registration, pushSubscription);
+          console.log('Successfully unsubscribed from vehicle notifications');
+        }
+        
+        // Call the parent onToggle to update the UI state
+        await onToggle(registration, false);
       }
       
-      // Call the provided onToggle function (which handles the API call)
-      await onToggle(registration, !isEnabled);
-      
-      // Only show confirmation notification AFTER successful API call
-      // and only when enabling notifications
-      if (!isEnabled && 'Notification' in window && Notification.permission === 'granted') {
-        // Small delay to ensure the API call completed successfully
-        setTimeout(() => {
-          new Notification('MOT Notifications Enabled', {
-            body: `You will now receive notifications for ${registration} when new MOT tests are recorded`,
-            icon: '/favicon.ico',
-            requireInteraction: false, // Don't require interaction for confirmation
-            silent: true // Make confirmation notification silent
-          });
-        }, 500);
-      }
     } catch (error) {
       console.error('Error toggling notification:', error);
-      alert(`Failed to ${!isEnabled ? 'enable' : 'disable'} notifications. Please try again.`);
+      alert(`Failed to ${!isEnabled ? 'enable' : 'disable'} notifications: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // If browser doesn't support notifications, show message
-  if (!('Notification' in window)) {
+  // If browser doesn't support push notifications, show message
+  if (!pushSupported) {
     return (
       <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
         <p className="text-yellow-800 text-sm">
-          Your browser doesn't support notifications. Try using a modern browser like Chrome or Firefox.
+          Push notifications are not supported in this browser. Please use Chrome, Firefox, Edge, or Safari on a supported device.
+        </p>
+        <p className="text-yellow-700 text-xs mt-1">
+          Note: iOS Safari requires iOS 16.4+ and macOS Safari requires macOS 13+
         </p>
       </div>
     );
@@ -84,11 +123,14 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
     <div className="p-4 bg-gray-50 rounded-lg border">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-medium">MOT Update Notifications</h3>
+          <h3 className="font-medium">Device Push Notifications</h3>
           <p className="text-sm text-gray-600">
             {isEnabled 
-              ? `You'll be notified when ${registration} has new MOT test results` 
-              : 'Get notified when this vehicle has a new MOT test'}
+              ? `This device will receive push notifications when ${registration} has new MOT test results` 
+              : 'Get push notifications on this device when this vehicle has a new MOT test'}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Device ID: {getDeviceId().substr(-8)} • {deviceSubscribed ? 'Push enabled' : 'Push disabled'}
           </p>
         </div>
 
@@ -114,6 +156,14 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
       {notificationPermission === 'denied' && (
         <div className="mt-2 text-xs text-red-600">
           Notification permission has been blocked. Please update your browser settings to enable notifications.
+        </div>
+      )}
+
+      {isEnabled && (
+        <div className="mt-2 bg-green-50 border border-green-200 rounded p-2">
+          <p className="text-xs text-green-800">
+            <span className="font-medium">✅ Active:</span> This device will receive push notifications for {registration} even when your browser is closed.
+          </p>
         </div>
       )}
     </div>

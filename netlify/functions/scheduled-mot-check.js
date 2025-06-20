@@ -1,11 +1,12 @@
 // netlify/functions/scheduled-mot-check.js
 const { schedule } = require('@netlify/functions');
 const { connectToDatabase } = require('./utils/mongodb');
+const { sendPushNotificationToDevices } = require('./sendPushNotification');
 const axios = require('axios');
 
 // Environment variable validation
 function validateEnvironmentVariables() {
-  const required = ['TOKEN_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'API_KEY', 'SCOPE'];
+  const required = ['TOKEN_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'API_KEY', 'SCOPE', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_MAILTO'];
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {
@@ -125,8 +126,13 @@ const handler = async (event) => {
     const db = await connectToDatabase();
     const collection = db.collection('notifications');
     
-    // Get all active registrations
-    const registrations = await collection.find({ enabled: true }).toArray();
+    // Get all active registrations with validation
+    const registrations = await collection.find({ 
+      $and: [
+        { $or: [{ enabled: true }, { enabled: { $exists: false } }] }, // Default enabled if field missing
+        { registration: { $exists: true, $ne: null, $ne: '' } }
+      ]
+    }).toArray();
     console.log(`Found ${registrations.length} active registrations to check`);
     
     if (registrations.length === 0) {
@@ -215,15 +221,43 @@ const handler = async (event) => {
             console.log(`Update detected for ${reg.registration}!`);
             results.updated++;
             
-            // Update the database record with new test data
+            // Create notification data for push notifications
+            const notificationData = {
+              registration: reg.registration,
+              testResult: latestMotTest.testResult,
+              previousDate: lastMotTestDate,
+              newDate: latestMotTestDate,
+              vehicle: {
+                make: vehicleData.make || 'Unknown',
+                model: vehicleData.model || 'Unknown',
+                registration: vehicleData.registration,
+                color: vehicleData.primaryColour || 'Unknown'
+              },
+              testDetails: {
+                expiryDate: latestMotTest.expiryDate,
+                defects: latestMotTest.defects || [],
+                odometerValue: latestMotTest.odometerValue,
+                odometerUnit: latestMotTest.odometerUnit
+              }
+            };
+
+            // Send push notifications to all subscribed devices for this registration
+            try {
+              const pushResults = await sendPushNotificationToDevices(reg.registration, notificationData);
+              console.log(`Push notification results for ${reg.registration}:`, pushResults);
+            } catch (pushError) {
+              console.error(`Error sending push notifications for ${reg.registration}:`, pushError);
+              // Don't fail the entire process if push notifications fail
+            }
+            
+            // Update the database record with new test data (keep for historical tracking)
             await collection.updateOne(
               { registration: reg.registration },
               { 
                 $set: { 
                   lastMotTestDate: latestMotTestDate,
                   lastCheckedDate: new Date().toISOString(),
-                  hasUpdate: true, 
-                  updateDetectedAt: new Date().toISOString(),
+                  lastNotificationSentAt: new Date().toISOString(),
                   updateDetails: {
                     previousDate: lastMotTestDate,
                     newDate: latestMotTestDate,
