@@ -208,11 +208,46 @@ const App = () => {
     
     loadRegistrations();
     
-    // Cleanup on unmount
+    // Enhanced cleanup on unmount - ensure all polling stops
     return () => {
+      console.log('App component unmounting, stopping all polling...');
       updatePoller.stopAll();
+      
+      // Additional cleanup for any remaining intervals
+      const activePolls = updatePoller.getActivePolls();
+      if (activePolls.length > 0) {
+        console.warn('Force cleaning remaining polls:', activePolls);
+        activePolls.forEach(reg => updatePoller.stopPolling(reg));
+      }
     };
   }, [setupPollingForRegistrations]);
+  
+  // Additional effect to handle page visibility changes and prevent memory leaks
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('Page hidden, reducing polling frequency...');
+        // Could implement reduced polling when page is hidden
+      } else {
+        console.log('Page visible, resuming normal polling...');
+        // Resume normal polling when page becomes visible
+      }
+    };
+    
+    const handleBeforeUnload = () => {
+      console.log('Page unloading, stopping all polling...');
+      updatePoller.stopAll();
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      updatePoller.stopAll();
+    };
+  }, []);
   
   // Save notified registrations to localStorage as a backup
   useEffect(() => {

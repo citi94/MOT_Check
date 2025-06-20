@@ -1,6 +1,19 @@
 // netlify/functions/getMonitoredVehicles.js
 const { connectToDatabase } = require('./utils/mongodb');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['MONGODB_URI'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 exports.handler = async (event) => {
   // CORS headers
   const headers = {
@@ -64,7 +77,9 @@ exports.handler = async (event) => {
       headers,
       body: JSON.stringify({
         error: true,
-        message: error.message || 'Internal server error'
+        message: error.message || 'Internal server error',
+        code: 'INTERNAL_SERVER_ERROR',
+        timestamp: new Date().toISOString()
       })
     };
   }

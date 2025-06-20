@@ -3,6 +3,19 @@
 const axios = require('axios');
 const { connectToDatabase } = require('./utils/mongodb');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['TOKEN_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'API_KEY', 'SCOPE'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 // Constants for API URLs and credentials
 const MOT_API_URL = 'https://history.mot.api.gov.uk';
 const TOKEN_URL = process.env.TOKEN_URL;
@@ -119,7 +132,12 @@ exports.handler = async function(event, context) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Missing registration parameter' })
+        body: JSON.stringify({
+          error: true,
+          message: 'Registration parameter is required',
+          code: 'MISSING_REGISTRATION',
+          timestamp: new Date().toISOString()
+        })
       };
     }
 
@@ -141,7 +159,9 @@ exports.handler = async function(event, context) {
         headers,
         body: JSON.stringify({
           error: true,
-          message: `No notification subscription found for ${formattedReg}`
+          message: `No notification subscription found for ${formattedReg}`,
+          code: 'SUBSCRIPTION_NOT_FOUND',
+          timestamp: new Date().toISOString()
         })
       };
     }
@@ -196,8 +216,11 @@ exports.handler = async function(event, context) {
         body: JSON.stringify({
           error: true,
           message: errorData.errorMessage || 'Error from MOT API',
-          code: errorData.errorCode || 'UNKNOWN_ERROR',
-          requestId: errorData.requestId
+          code: errorData.errorCode || 'MOT_API_ERROR',
+          timestamp: new Date().toISOString(),
+          details: {
+            requestId: errorData.requestId
+          }
         })
       };
     }
@@ -208,7 +231,9 @@ exports.handler = async function(event, context) {
       headers,
       body: JSON.stringify({
         error: true,
-        message: error.message || 'Internal server error'
+        message: error.message || 'Internal server error',
+        code: 'INTERNAL_SERVER_ERROR',
+        timestamp: new Date().toISOString()
       })
     };
   }

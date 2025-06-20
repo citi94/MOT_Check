@@ -16,7 +16,7 @@ const RegistrationInput = ({ onSubmit }) => {
     // Diplomatic: format starting with 'D' or 'X' (e.g., D123)
     // Also handles personalized plates
     
-    // Basic length check (most UK registrations are between 2-7 characterss)
+    // Basic length check (most UK registrations are between 2-7 characters)
     if (formatted.length < 2 || formatted.length > 8) {
       return false;
     }

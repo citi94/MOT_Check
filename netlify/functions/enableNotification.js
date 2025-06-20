@@ -3,6 +3,19 @@
 const { connectToDatabase } = require('./utils/mongodb');
 const axios = require('axios');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['TOKEN_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'API_KEY', 'SCOPE'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 // Constants for API URLs and credentials
 const MOT_API_URL = 'https://history.mot.api.gov.uk';
 const TOKEN_URL = process.env.TOKEN_URL;
@@ -15,6 +28,9 @@ const SCOPE = process.env.SCOPE;
 let cachedToken = null;
 let tokenExpiry = null;
 
+// Prevent race conditions in token renewal with a simple lock
+let tokenRenewalInProgress = false;
+
 /**
  * Gets a valid access token, retrieving a new one if necessary
  */
@@ -25,7 +41,23 @@ async function getAccessToken() {
     return cachedToken;
   }
 
+  // If token renewal is already in progress, wait for it
+  if (tokenRenewalInProgress) {
+    console.log('Token renewal already in progress, waiting...');
+    while (tokenRenewalInProgress) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    // Check again after waiting
+    if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) {
+      return cachedToken;
+    }
+  }
+
+  tokenRenewalInProgress = true;
+  
   try {
+    console.log('Requesting new MOT API token...');
+    
     // Request new token
     const response = await axios.post(TOKEN_URL, 
       `grant_type=client_credentials&scope=${encodeURIComponent(SCOPE)}`,
@@ -36,7 +68,8 @@ async function getAccessToken() {
         auth: {
           username: CLIENT_ID,
           password: CLIENT_SECRET
-        }
+        },
+        timeout: 10000 // 10 second timeout
       }
     );
 
@@ -47,10 +80,13 @@ async function getAccessToken() {
     // Using 55 minutes gives us a 5-minute buffer
     tokenExpiry = now + (55 * 60 * 1000);
     
+    console.log('Successfully obtained new MOT API token');
     return cachedToken;
   } catch (error) {
     console.error('Error getting access token:', error.response?.data || error.message);
     throw new Error('Failed to authenticate with MOT API');
+  } finally {
+    tokenRenewalInProgress = false;
   }
 }
 
@@ -120,19 +156,44 @@ exports.handler = async function(event, context) {
     return {
       statusCode: 405,
       headers,
-      body: JSON.stringify({ error: 'Method not allowed' })
+      body: JSON.stringify({
+        error: true,
+        message: 'Method not allowed',
+        code: 'METHOD_NOT_ALLOWED',
+        timestamp: new Date().toISOString()
+      })
     };
   }
 
   try {
     // Parse the request body
-    const { registration } = JSON.parse(event.body);
+    let registration;
+    try {
+      const body = JSON.parse(event.body);
+      registration = body.registration;
+    } catch (parseError) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          error: true,
+          message: 'Invalid JSON in request body',
+          code: 'INVALID_JSON',
+          timestamp: new Date().toISOString()
+        })
+      };
+    }
     
     if (!registration) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Registration is required' })
+        body: JSON.stringify({
+          error: true,
+          message: 'Registration is required',
+          code: 'MISSING_REGISTRATION',
+          timestamp: new Date().toISOString()
+        })
       };
     }
 
@@ -225,7 +286,9 @@ exports.handler = async function(event, context) {
       headers,
       body: JSON.stringify({
         error: true,
-        message: 'Failed to enable notifications: ' + (error.message || 'Unknown error')
+        message: 'Failed to enable notifications: ' + (error.message || 'Unknown error'),
+        code: 'INTERNAL_SERVER_ERROR',
+        timestamp: new Date().toISOString()
       })
     };
   }

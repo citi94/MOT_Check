@@ -3,6 +3,19 @@ const { schedule } = require('@netlify/functions');
 const { connectToDatabase } = require('./utils/mongodb');
 const axios = require('axios');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['TOKEN_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'API_KEY', 'SCOPE'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 // Constants for API URLs and credentials
 const MOT_API_URL = 'https://history.mot.api.gov.uk';
 const TOKEN_URL = process.env.TOKEN_URL;
@@ -281,9 +294,10 @@ const handler = async (event) => {
     console.error('Error in scheduled check:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
-        error: 'Failed to run scheduled check',
-        message: error.message,
+      body: JSON.stringify({
+        error: true,
+        message: 'Failed to run scheduled check: ' + error.message,
+        code: 'SCHEDULED_CHECK_ERROR',
         timestamp: new Date().toISOString()
       }),
     };

@@ -78,7 +78,7 @@ export const showNotification = (title, options = {}) => {
  * @param {string} registration - Vehicle registration to check
  * @returns {Promise<Object>} - Update information
  */
-export const checkForUpdates = async (registration) => {
+export const checkForUpdates = async (registration, clientId = null) => {
   if (!registration) return null;
   
   try {
@@ -88,13 +88,14 @@ export const checkForUpdates = async (registration) => {
     const timestamp = new Date().getTime();
     const url = `/api/getPendingNotifications?registration=${formattedReg}&_=${timestamp}`;
     
-    console.log(`Checking for updates for ${formattedReg} at ${url}`);
+    console.log(`Checking for updates for ${formattedReg} at ${url} (client: ${clientId || 'unknown'})`);
     
     const response = await fetch(url, {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
-        'Expires': '0'
+        'Expires': '0',
+        'X-Client-Id': clientId || 'unknown'  // Include client ID for server tracking
       }
     });
     
@@ -163,7 +164,10 @@ class UpdatePoller {
     this.handlers = new Map();  // Map of registration -> callback function
     this.lastCheckedCallbacks = new Map(); // Map of registration -> lastChecked callback
     this.errorCounts = new Map(); // Track errors for each registration
+    this.backoffMultipliers = new Map(); // Track backoff multipliers for each registration
     this.MAX_ERRORS = 3; // Maximum consecutive errors before backing off
+    this.clientId = `client_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`; // Unique client ID
+    console.log(`UpdatePoller initialized with client ID: ${this.clientId}`);
   }
   
   /**
@@ -182,20 +186,22 @@ class UpdatePoller {
       this.lastCheckedCallbacks.set(formattedReg, onPollComplete);
     }
     
-    // Reset error count for this registration
+    // Reset error count and backoff for this registration
     this.errorCounts.set(formattedReg, 0);
+    this.backoffMultipliers.set(formattedReg, 1);
     
     const pollFn = async () => {
-      console.log(`Polling for updates for ${formattedReg}...`);
+      console.log(`Polling for updates for ${formattedReg}... (client: ${this.clientId})`);
       
       // Generate current timestamp immediately when poll starts - this is the actual check time
       const pollStartTime = new Date().toISOString();
       
       try {
-        const updateInfo = await checkForUpdates(formattedReg);
+        const updateInfo = await checkForUpdates(formattedReg, this.clientId);
         
-        // Reset error count on success
+        // Reset error count and backoff on success
         this.errorCounts.set(formattedReg, 0);
+        this.backoffMultipliers.set(formattedReg, 1);
         
         // ALWAYS call onPollComplete if provided, regardless of updateInfo
         // This ensures the "Last checked" timestamp is always updated
@@ -225,11 +231,13 @@ class UpdatePoller {
           onPollComplete(formattedReg, pollStartTime);
         }
         
-        // If exceeded MAX_ERRORS, back off but don't stop polling completely
+        // Implement exponential backoff for errors
         if (currentErrors + 1 >= this.MAX_ERRORS) {
-          console.warn(`Backing off polling for ${formattedReg} due to consecutive errors`);
-          // We don't stop polling, just let the interval continue at the normal rate
-          // This gives the server a chance to recover
+          const currentBackoff = this.backoffMultipliers.get(formattedReg) || 1;
+          const newBackoff = Math.min(currentBackoff * 2, 16); // Cap at 16x interval
+          this.backoffMultipliers.set(formattedReg, newBackoff);
+          
+          console.warn(`Backing off polling for ${formattedReg} due to consecutive errors. New backoff multiplier: ${newBackoff}x`);
         }
       }
     };
@@ -238,8 +246,31 @@ class UpdatePoller {
     console.log(`Running initial poll for ${formattedReg}`);
     pollFn();
     
-    // Set up interval
-    const intervalId = setInterval(pollFn, intervalSeconds * 1000);
+    // Set up interval with dynamic backoff
+    const createInterval = () => {
+      const backoffMultiplier = this.backoffMultipliers.get(formattedReg) || 1;
+      const effectiveInterval = intervalSeconds * backoffMultiplier * 1000;
+      
+      const intervalId = setInterval(() => {
+        // Check if backoff has changed and recreate interval if needed
+        const currentBackoff = this.backoffMultipliers.get(formattedReg) || 1;
+        if (currentBackoff !== backoffMultiplier) {
+          console.log(`Backoff changed for ${formattedReg}, recreating interval`);
+          clearInterval(intervalId);
+          this.intervals.delete(formattedReg);
+          const newIntervalId = createInterval();
+          this.intervals.set(formattedReg, newIntervalId);
+          return;
+        }
+        
+        pollFn();
+      }, effectiveInterval);
+      
+      console.log(`Set interval for ${formattedReg}: ${effectiveInterval}ms (${intervalSeconds}s * ${backoffMultiplier}x backoff)`);
+      return intervalId;
+    };
+    
+    const intervalId = createInterval();
     this.intervals.set(formattedReg, intervalId);
     
     console.log(`Started polling for ${formattedReg} every ${intervalSeconds} seconds`);
@@ -261,7 +292,8 @@ class UpdatePoller {
       this.handlers.delete(formattedReg);
       this.lastCheckedCallbacks.delete(formattedReg);
       this.errorCounts.delete(formattedReg);
-      console.log(`Stopped polling for ${formattedReg}`);
+      this.backoffMultipliers.delete(formattedReg);
+      console.log(`Stopped polling for ${formattedReg} (client: ${this.clientId})`);
       return true;
     }
     return false;
@@ -294,13 +326,15 @@ class UpdatePoller {
   stopAll() {
     for (const [reg, intervalId] of this.intervals.entries()) {
       clearInterval(intervalId);
-      console.log(`Stopped polling for ${reg}`);
+      console.log(`Stopped polling for ${reg} (client: ${this.clientId})`);
     }
     
     this.intervals.clear();
     this.handlers.clear();
     this.lastCheckedCallbacks.clear();
     this.errorCounts.clear();
+    this.backoffMultipliers.clear();
+    console.log(`All polling stopped for client: ${this.clientId}`);
   }
   
   /**

@@ -2,6 +2,19 @@
 
 const { connectToDatabase } = require('./utils/mongodb');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['MONGODB_URI'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 exports.handler = async function(event, context) {
   // CORS headers
   const headers = {
@@ -23,19 +36,44 @@ exports.handler = async function(event, context) {
     return {
       statusCode: 405,
       headers,
-      body: JSON.stringify({ error: 'Method not allowed' })
+      body: JSON.stringify({
+        error: true,
+        message: 'Method not allowed',
+        code: 'METHOD_NOT_ALLOWED',
+        timestamp: new Date().toISOString()
+      })
     };
   }
 
   try {
     // Parse the request body
-    const { registration } = JSON.parse(event.body);
+    let registration;
+    try {
+      const body = JSON.parse(event.body);
+      registration = body.registration;
+    } catch (parseError) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          error: true,
+          message: 'Invalid JSON in request body',
+          code: 'INVALID_JSON',
+          timestamp: new Date().toISOString()
+        })
+      };
+    }
     
     if (!registration) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Registration is required' })
+        body: JSON.stringify({
+          error: true,
+          message: 'Registration is required',
+          code: 'MISSING_REGISTRATION',
+          timestamp: new Date().toISOString()
+        })
       };
     }
 
@@ -58,7 +96,9 @@ exports.handler = async function(event, context) {
         headers,
         body: JSON.stringify({
           error: true,
-          message: `No notifications found for ${formattedReg}`
+          message: `No notifications found for ${formattedReg}`,
+          code: 'NOTIFICATION_NOT_FOUND',
+          timestamp: new Date().toISOString()
         })
       };
     }
@@ -79,7 +119,9 @@ exports.handler = async function(event, context) {
       headers,
       body: JSON.stringify({
         error: true,
-        message: 'Failed to disable notifications: ' + (error.message || 'Unknown error')
+        message: 'Failed to disable notifications: ' + (error.message || 'Unknown error'),
+        code: 'INTERNAL_SERVER_ERROR',
+        timestamp: new Date().toISOString()
       })
     };
   }

@@ -2,6 +2,19 @@
 
 const axios = require('axios');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['TOKEN_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'API_KEY', 'SCOPE'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 // Constants for API URLs and credentials
 const MOT_API_URL = 'https://history.mot.api.gov.uk';
 const TOKEN_URL = process.env.TOKEN_URL;
@@ -65,7 +78,8 @@ exports.handler = async function(event, context) {
         body: JSON.stringify({
           error: true,
           message: errorData.error_description || 'Error renewing token',
-          code: errorData.error || 'UNKNOWN_ERROR'
+          code: errorData.error || 'TOKEN_RENEWAL_ERROR',
+          timestamp: new Date().toISOString()
         })
       };
     }
@@ -76,7 +90,9 @@ exports.handler = async function(event, context) {
       headers,
       body: JSON.stringify({
         error: true,
-        message: error.message || 'Internal server error'
+        message: error.message || 'Internal server error',
+        code: 'INTERNAL_SERVER_ERROR',
+        timestamp: new Date().toISOString()
       })
     };
   }

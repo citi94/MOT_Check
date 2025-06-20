@@ -48,15 +48,22 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
       // Call the provided onToggle function (which handles the API call)
       await onToggle(registration, !isEnabled);
       
-      // Show a confirmation notification when enabling
+      // Only show confirmation notification AFTER successful API call
+      // and only when enabling notifications
       if (!isEnabled && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification('MOT Notifications Enabled', {
-          body: `You will now receive notifications for ${registration} when new MOT tests are recorded`,
-          icon: '/favicon.ico'
-        });
+        // Small delay to ensure the API call completed successfully
+        setTimeout(() => {
+          new Notification('MOT Notifications Enabled', {
+            body: `You will now receive notifications for ${registration} when new MOT tests are recorded`,
+            icon: '/favicon.ico',
+            requireInteraction: false, // Don't require interaction for confirmation
+            silent: true // Make confirmation notification silent
+          });
+        }, 500);
       }
     } catch (error) {
       console.error('Error toggling notification:', error);
+      alert(`Failed to ${!isEnabled ? 'enable' : 'disable'} notifications. Please try again.`);
     } finally {
       setIsLoading(false);
     }

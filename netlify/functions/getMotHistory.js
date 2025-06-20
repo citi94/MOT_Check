@@ -2,6 +2,19 @@
 
 const axios = require('axios');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['TOKEN_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'API_KEY', 'SCOPE'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 // Constants for API URLs and credentials
 const MOT_API_URL = 'https://history.mot.api.gov.uk';
 const TOKEN_URL = process.env.TOKEN_URL;
@@ -92,8 +105,11 @@ exports.handler = async function(event, context) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ 
-          error: 'Missing registration parameter' 
+        body: JSON.stringify({
+          error: true,
+          message: 'Registration parameter is required',
+          code: 'MISSING_REGISTRATION',
+          timestamp: new Date().toISOString()
         })
       };
     }
@@ -105,8 +121,11 @@ exports.handler = async function(event, context) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ 
-          error: 'Invalid registration format' 
+        body: JSON.stringify({
+          error: true,
+          message: 'Invalid registration format',
+          code: 'INVALID_REGISTRATION_FORMAT',
+          timestamp: new Date().toISOString()
         })
       };
     }
@@ -147,7 +166,8 @@ exports.handler = async function(event, context) {
           body: JSON.stringify({
             error: true,
             message: `No vehicle found with registration ${formattedRegistration}`,
-            code: apiError.response?.data?.errorCode || 'NOT_FOUND'
+            code: apiError.response?.data?.errorCode || 'VEHICLE_NOT_FOUND',
+            timestamp: new Date().toISOString()
           })
         };
       }
@@ -160,8 +180,11 @@ exports.handler = async function(event, context) {
           body: JSON.stringify({
             error: true,
             message: apiError.response.data?.errorMessage || 'Error from MOT API',
-            code: apiError.response.data?.errorCode || 'API_ERROR',
-            requestId: apiError.response.data?.requestId
+            code: apiError.response.data?.errorCode || 'MOT_API_ERROR',
+            timestamp: new Date().toISOString(),
+            details: {
+              requestId: apiError.response.data?.requestId
+            }
           })
         };
       }
@@ -173,7 +196,8 @@ exports.handler = async function(event, context) {
         body: JSON.stringify({
           error: true,
           message: apiError.message || 'Failed to connect to MOT API',
-          code: 'CONNECTION_ERROR'
+          code: 'CONNECTION_ERROR',
+          timestamp: new Date().toISOString()
         })
       };
     }
@@ -187,7 +211,8 @@ exports.handler = async function(event, context) {
       body: JSON.stringify({
         error: true,
         message: error.message || 'Internal server error',
-        code: 'SERVER_ERROR'
+        code: 'INTERNAL_SERVER_ERROR',
+        timestamp: new Date().toISOString()
       })
     };
   }

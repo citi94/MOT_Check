@@ -1,6 +1,19 @@
 // netlify/functions/getPendingNotifications.js
 const { connectToDatabase } = require('./utils/mongodb');
 
+// Environment variable validation
+function validateEnvironmentVariables() {
+  const required = ['MONGODB_URI'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
+// Validate environment variables on module load
+validateEnvironmentVariables();
+
 exports.handler = async (event) => {
   // CORS headers
   const headers = {
@@ -24,10 +37,15 @@ exports.handler = async (event) => {
     const { registration } = event.queryStringParameters || {};
     
     if (!registration) {
-      return { 
-        statusCode: 400, 
+      return {
+        statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Registration required' }) 
+        body: JSON.stringify({
+          error: true,
+          message: 'Registration parameter is required',
+          code: 'MISSING_REGISTRATION',
+          timestamp: new Date().toISOString()
+        })
       };
     }
     
@@ -50,7 +68,9 @@ exports.handler = async (event) => {
         headers,
         body: JSON.stringify({
           error: true,
-          message: `No notification subscription found for ${formattedReg}`
+          message: `No notification subscription found for ${formattedReg}`,
+          code: 'SUBSCRIPTION_NOT_FOUND',
+          timestamp: new Date().toISOString()
         })
       };
     }
@@ -61,17 +81,31 @@ exports.handler = async (event) => {
       lastMotTestDate: record.lastMotTestDate
     });
     
-    if (record.hasUpdate) {
-      console.log(`Pending update found for ${formattedReg}`);
+    // Use atomic findOneAndUpdate to prevent race conditions
+    // This ensures only ONE client gets the notification, even with simultaneous requests
+    const updatedRecord = await collection.findOneAndUpdate(
+      { 
+        registration: formattedReg, 
+        hasUpdate: true  // Only update if hasUpdate is still true
+      },
+      { 
+        $set: { 
+          hasUpdate: false, 
+          updateAcknowledgedAt: new Date().toISOString(),
+          acknowledgedBy: event.headers['x-client-id'] || 'unknown'
+        } 
+      },
+      { 
+        returnDocument: 'before'  // Return the document before update
+      }
+    );
+    
+    // If updatedRecord is null, another client already processed this update
+    if (updatedRecord && updatedRecord.hasUpdate) {
+      console.log(`Pending update found and claimed for ${formattedReg}`);
       
       // Get update details
-      const updateDetails = record.updateDetails || {};
-      
-      // Clear the update flag so it's only notified once
-      await collection.updateOne(
-        { registration: formattedReg },
-        { $set: { hasUpdate: false, updateAcknowledgedAt: new Date().toISOString() } }
-      );
+      const updateDetails = updatedRecord.updateDetails || {};
       
       return {
         statusCode: 200,
@@ -79,11 +113,16 @@ exports.handler = async (event) => {
         body: JSON.stringify({ 
           hasUpdate: true, 
           registration: formattedReg,
-          updateDetectedAt: record.updateDetectedAt,
+          updateDetectedAt: updatedRecord.updateDetectedAt,
           details: updateDetails,
-          lastCheckedDate: record.lastCheckedDate
+          lastCheckedDate: updatedRecord.lastCheckedDate
         })
       };
+    }
+    
+    // If we reach here, either no update was pending or another client claimed it
+    if (record.hasUpdate) {
+      console.log(`Update for ${formattedReg} was already claimed by another client`);
     }
     
     // Return monitoring status even if no updates
@@ -106,7 +145,9 @@ exports.handler = async (event) => {
       headers,
       body: JSON.stringify({
         error: true,
-        message: error.message || 'Internal server error'
+        message: error.message || 'Internal server error',
+        code: 'INTERNAL_SERVER_ERROR',
+        timestamp: new Date().toISOString()
       })
     };
   }
