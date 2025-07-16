@@ -4,7 +4,7 @@ const { connectToDatabase } = require('./utils/mongodb');
 
 // Environment variable validation
 function validateEnvironmentVariables() {
-  const required = ['MONGODB_URI'];
+  const required = ['MONGODB_URI', 'MONGODB_DB_NAME'];
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {

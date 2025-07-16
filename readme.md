@@ -36,6 +36,7 @@ This application uses a combination of server and client-side technologies to pr
 
 The following environment variables must be set in your Netlify site settings:
 
+**Backend Configuration:**
 - `MONGODB_URI`: MongoDB connection string
 - `MONGODB_DB_NAME`: Database name
 - `TOKEN_URL`: MOT API token URL
@@ -43,6 +44,14 @@ The following environment variables must be set in your Netlify site settings:
 - `CLIENT_SECRET`: MOT API client secret
 - `API_KEY`: MOT API key
 - `SCOPE`: MOT API scope
+
+**Push Notification Configuration:**
+- `VAPID_PUBLIC_KEY`: VAPID public key for push notifications
+- `VAPID_PRIVATE_KEY`: VAPID private key for push notifications
+- `VAPID_MAILTO`: Contact email for VAPID configuration
+
+**Frontend Configuration:**
+- `REACT_APP_VAPID_PUBLIC_KEY`: VAPID public key for client-side use
 
 ## How It Works
 
@@ -71,9 +80,11 @@ The following environment variables must be set in your Netlify site settings:
 ## Performance Considerations
 
 - **Batched Processing**: The server processes vehicles in small batches to avoid API rate limits
-- **Cached Authentication**: OAuth tokens are cached to reduce API calls
+- **Centralized Token Management**: OAuth tokens are cached with race condition protection
+- **Optimized Index Creation**: Database indexes are only created when needed
 - **Efficient Polling**: The client only checks for updates rather than fetching full data
 - **No-Cache Headers**: All API responses include headers to prevent caching of outdated data
+- **Connection Pooling**: MongoDB connections are cached and reused across function invocations
 
 ## Troubleshooting
 
@@ -83,6 +94,29 @@ If notifications are not working properly:
 2. Check that MongoDB is properly connected
 3. Verify that the scheduled function is running (check Netlify function logs)
 4. Confirm that the MOT API credentials are valid
+5. Ensure all required environment variables are set (see list above)
+6. Check that VAPID keys are properly configured for push notifications
+
+## Recent Updates (2024)
+
+### ✅ Critical Bug Fix
+- **Fixed notification system**: The `hasUpdate` flag was not being set properly, causing notifications to fail completely
+- **Status**: All notifications should now work correctly
+
+### 🔒 Security Improvements
+- Added authentication to `renewToken.js` endpoint
+- Removed hardcoded VAPID keys from client-side code
+- Enhanced input validation across all functions
+
+### ⚡ Performance Optimizations
+- Centralized token management with race condition protection
+- Optimized database index creation
+- Standardized API timeouts (10 seconds)
+
+### 🛠️ Code Quality
+- Created shared token management utility
+- Standardized error response formats
+- Improved environment variable validation
 
 ## Database Structure
 

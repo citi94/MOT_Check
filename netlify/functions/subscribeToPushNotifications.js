@@ -122,15 +122,27 @@ exports.handler = async function(event, context) {
     const subscriptionsCollection = db.collection('push_subscriptions');
     
     // Ensure indexes exist for better performance and data integrity
+    // Only create indexes if they don't exist (prevents performance issues)
     try {
-      await subscriptionsCollection.createIndex(
-        { registration: 1, deviceId: 1 }, 
-        { unique: true, background: true }
-      );
-      await subscriptionsCollection.createIndex(
-        { subscribedAt: 1 }, 
-        { background: true }
-      );
+      const existingIndexes = await subscriptionsCollection.indexes();
+      const indexNames = existingIndexes.map(index => index.name);
+      
+      // Only create indexes if they don't already exist
+      if (!indexNames.includes('registration_1_deviceId_1')) {
+        await subscriptionsCollection.createIndex(
+          { registration: 1, deviceId: 1 }, 
+          { unique: true, background: true }
+        );
+        console.log('Created unique index on registration and deviceId');
+      }
+      
+      if (!indexNames.includes('subscribedAt_1')) {
+        await subscriptionsCollection.createIndex(
+          { subscribedAt: 1 }, 
+          { background: true }
+        );
+        console.log('Created index on subscribedAt');
+      }
     } catch (indexError) {
       console.warn('Index creation warning (may already exist):', indexError.message);
     }

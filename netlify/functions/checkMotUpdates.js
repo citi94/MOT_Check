@@ -2,6 +2,7 @@
 
 const axios = require('axios');
 const { connectToDatabase } = require('./utils/mongodb');
+const { getAccessToken } = require('./utils/tokenManager');
 
 // Environment variable validation
 function validateEnvironmentVariables() {
@@ -24,48 +25,7 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const API_KEY = process.env.API_KEY;
 const SCOPE = process.env.SCOPE;
 
-// Cache for access tokeen
-let cachedToken = null;
-let tokenExpiry = null;
-
-/**
- * Gets a valid access token, retrieving a new one if necessary
- */
-async function getAccessToken() {
-  // Check if we have a valid token
-  const now = Date.now();
-  if (cachedToken && tokenExpiry && now < tokenExpiry) {
-    return cachedToken;
-  }
-
-  try {
-    // Request new token
-    const response = await axios.post(TOKEN_URL, 
-      `grant_type=client_credentials&scope=${encodeURIComponent(SCOPE)}`,
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        auth: {
-          username: CLIENT_ID,
-          password: CLIENT_SECRET
-        }
-      }
-    );
-
-    // Update cache
-    cachedToken = response.data.access_token;
-    
-    // Set expiry to 55 minutes from now (tokens last 60 minutes)
-    // Using 55 minutes gives us a 5-minute buffer
-    tokenExpiry = now + (55 * 60 * 1000);
-    
-    return cachedToken;
-  } catch (error) {
-    console.error('Error getting access token:', error.response?.data || error.message);
-    throw new Error('Failed to authenticate with MOT API');
-  }
-}
+// Token management is now handled by the shared tokenManager utility
 
 /**
  * Fetches MOT history for a given registration
@@ -80,7 +40,8 @@ async function getMotHistory(registration) {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-API-Key': API_KEY
-        }
+        },
+        timeout: 10000 // 10 second timeout
       }
     );
     

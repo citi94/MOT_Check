@@ -82,6 +82,8 @@ All serverless functions use standardized error format:
 - Connection pool configuration (5-10 connections)
 
 ### MOT API Integration
+- **NEW**: Centralized token management via `utils/tokenManager.js`
+- **NEW**: Race condition protection for token renewal
 - OAuth token caching with 55-minute expiry (5-minute buffer)
 - All API calls include 10-second timeouts
 - Comprehensive error handling for rate limits and API failures
@@ -89,7 +91,8 @@ All serverless functions use standardized error format:
 ### Scheduled Function
 - Configured in `netlify.toml` to run `@hourly`
 - Processes vehicles in batches to avoid rate limits
-- Updates MongoDB with new MOT test data and sets notification flags
+- **FIXED**: Now properly sets `hasUpdate: true` flag when new MOT tests detected
+- Updates MongoDB with new MOT test data and notification flags
 
 ### Client Polling System
 - Configurable interval (10-300 seconds) via `UpdatePoller` class
@@ -97,13 +100,53 @@ All serverless functions use standardized error format:
 - Always calls `onPollComplete` callback to update "Last checked" timestamp
 
 ### Security Measures
+- **NEW**: `renewToken.js` now requires Bearer token authentication
+- **NEW**: Removed hardcoded VAPID keys, uses environment variables
 - JSON parsing with error handling in all functions
 - Input validation for vehicle registrations
-- Environment variable validation on function startup
+- Consistent environment variable validation across all functions
 - CORS headers and Content Security Policy in `netlify.toml`
+
+### Performance Optimizations
+- **NEW**: Optimized index creation in `subscribeToPushNotifications.js`
+- **NEW**: Centralized token management prevents duplicate API calls
+- **NEW**: Race condition protection for concurrent requests
 
 ### Deployment Configuration
 - Functions deployed to `/.netlify/functions/`
 - API redirects configured: `/api/*` → `/.netlify/functions/*`
 - No-cache headers for all API endpoints
 - Service worker cache control for offline functionality
+
+## Recent Bug Fixes and Improvements (2024)
+
+### Critical Bug Fix: Notification System
+- **Issue**: `scheduled-mot-check.js` wasn't setting `hasUpdate: true` flag
+- **Impact**: Push notifications were completely broken
+- **Fix**: Added proper flag setting with `updateDetectedAt` timestamp
+- **Status**: ✅ FIXED - Notifications now work correctly
+
+### Security Improvements
+- **Issue**: `renewToken.js` was publicly accessible without authentication
+- **Fix**: Added Bearer token authentication requirement
+- **Issue**: Hardcoded VAPID keys in client-side code
+- **Fix**: Moved to environment variables with proper validation
+
+### Performance Optimizations
+- **Issue**: Index creation happening on every function call
+- **Fix**: Added check for existing indexes before creation
+- **Issue**: Race conditions in token management
+- **Fix**: Centralized token management with proper locking
+
+### Code Quality Improvements
+- **Issue**: Inconsistent token management across functions
+- **Fix**: Created shared `utils/tokenManager.js` utility
+- **Issue**: Missing API timeouts in some functions
+- **Fix**: Standardized 10-second timeouts across all MOT API calls
+- **Issue**: Inconsistent environment variable validation
+- **Fix**: Added `MONGODB_DB_NAME` validation to all MongoDB functions
+
+### New Utilities Added
+- `netlify/functions/utils/tokenManager.js` - Centralized MOT API token management
+- Enhanced error handling and logging throughout the system
+- Improved race condition protection for concurrent requests

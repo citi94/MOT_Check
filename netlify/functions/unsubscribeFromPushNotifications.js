@@ -47,11 +47,10 @@ exports.handler = async function(event, context) {
 
   try {
     // Parse the request body
-    let registration, subscription, deviceId;
+    let registration, deviceId;
     try {
       const body = JSON.parse(event.body);
       registration = body.registration;
-      subscription = body.subscription;
       deviceId = body.deviceId;
     } catch (parseError) {
       return {

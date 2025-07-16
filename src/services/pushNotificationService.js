@@ -4,8 +4,13 @@
  * Web Push Notification Service for device-specific notifications
  */
 
-// This will be set from environment or config
-const VAPID_PUBLIC_KEY = process.env.REACT_APP_VAPID_PUBLIC_KEY || 'BPTmO9gBx6VRdQHnV6dDQyB7_n-et3q7enfT5ef_ZqGT7Dyoq7UTz6L5TxbaBpI7CUGcP-UfyziFoG5tQQoF3FE';
+// Get VAPID public key from environment variable
+const VAPID_PUBLIC_KEY = process.env.REACT_APP_VAPID_PUBLIC_KEY;
+
+// Validate VAPID key is available
+if (!VAPID_PUBLIC_KEY) {
+  console.error('REACT_APP_VAPID_PUBLIC_KEY environment variable is not set');
+}
 
 /**
  * Convert VAPID key to Uint8Array
@@ -72,6 +77,10 @@ export const getCurrentSubscription = async () => {
 export const subscribeToPush = async () => {
   if (!isPushSupported()) {
     throw new Error('Push notifications are not supported in this browser');
+  }
+
+  if (!VAPID_PUBLIC_KEY) {
+    throw new Error('VAPID public key is not configured');
   }
 
   try {
