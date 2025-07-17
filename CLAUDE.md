@@ -56,6 +56,7 @@ React app (`/src/`) with service-based architecture:
 **Services:**
 - `services/motApi.js` - Client-side API calls to Netlify functions
 - `services/notificationService.js` - Browser notification handling and update polling logic
+- `services/pushNotificationService.js` - Web Push notification management and iOS Safari compatibility
 
 ### Critical Environment Variables
 All functions validate required environment variables on startup:
@@ -150,3 +151,24 @@ All serverless functions use standardized error format:
 - `netlify/functions/utils/tokenManager.js` - Centralized MOT API token management
 - Enhanced error handling and logging throughout the system
 - Improved race condition protection for concurrent requests
+
+### iOS Safari Push Notification Support (December 2024)
+- **Issue**: iOS Safari 18.5+ shows "device not up to date" for push notifications
+- **Root Cause**: iOS Safari requires Web Push API (PushManager/Notification) but only exposes these APIs when app is added to home screen
+- **Fix**: Added comprehensive iOS Safari detection and user guidance
+- **Implementation**: 
+  - Enhanced `isPushSupported()` with detailed API availability checks
+  - Added `isPushReady()` function for service worker readiness verification
+  - Improved `NotificationToggle` component with iOS-specific messaging
+  - Added diagnostic logging for troubleshooting push support issues
+- **User Experience**: Clear instructions to "Add to Home Screen" for push notifications, with alternative workflow for browser-only usage
+- **Status**: ✅ RESOLVED - iOS users now get proper guidance instead of confusing error messages
+
+## iOS Safari Push Notification Limitations
+
+### Important Notes for iOS Safari Users:
+- **iOS Safari 18.5+**: Web Push API (PushManager/Notification) only available when app is added to home screen
+- **Workaround**: App functions normally in browser mode, just without push notifications
+- **Full Support**: Add to home screen → Web Push API becomes available → Push notifications work
+- **Server Monitoring**: Hourly checks continue regardless of push notification support
+- **Detection**: App automatically detects iOS Safari limitations and provides appropriate guidance
