@@ -17,11 +17,25 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
   const [pushReady, setPushReady] = useState(false);
   const [deviceSubscribed, setDeviceSubscribed] = useState(false);
   const [supportError, setSupportError] = useState(null);
+  const [debugInfo, setDebugInfo] = useState(null);
 
   useEffect(() => {
     // Check if push notifications are supported
     const supported = isPushSupported();
     setPushSupported(supported);
+    
+    // Capture debug information
+    setDebugInfo({
+      hasServiceWorker: 'serviceWorker' in navigator,
+      hasPushManager: 'PushManager' in window,
+      hasNotification: 'Notification' in window,
+      hasFetch: 'fetch' in window,
+      isSecureContext: window.isSecureContext,
+      isHTTPS: window.location.protocol === 'https:',
+      userAgent: navigator.userAgent,
+      isStandalone: window.navigator.standalone,
+      location: window.location.href
+    });
     
     // Check notification permission status
     if ('Notification' in window) {
@@ -137,9 +151,24 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
         <p className="text-yellow-700 text-xs mt-1">
           Note: iOS Safari requires iOS 16.4+ and macOS Safari requires macOS 13+
         </p>
+        {debugInfo && (
+          <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
+            <p className="font-medium mb-1">Debug Information:</p>
+            <div className="space-y-1">
+              <p>ServiceWorker: {debugInfo.hasServiceWorker ? '✅' : '❌'}</p>
+              <p>PushManager: {debugInfo.hasPushManager ? '✅' : '❌'}</p>
+              <p>Notification: {debugInfo.hasNotification ? '✅' : '❌'}</p>
+              <p>Fetch: {debugInfo.hasFetch ? '✅' : '❌'}</p>
+              <p>Secure Context: {debugInfo.isSecureContext ? '✅' : '❌'}</p>
+              <p>HTTPS: {debugInfo.isHTTPS ? '✅' : '❌'}</p>
+              <p>Standalone: {debugInfo.isStandalone ? 'Yes' : 'No'}</p>
+              <p className="break-all">UA: {debugInfo.userAgent.substring(0, 50)}...</p>
+            </div>
+          </div>
+        )}
         {supportError && (
           <p className="text-red-700 text-xs mt-2 font-medium">
-            Debug: {supportError}
+            Error: {supportError}
           </p>
         )}
       </div>

@@ -39,15 +39,59 @@ export const isPushSupported = () => {
   const hasNotification = 'Notification' in window;
   const hasFetch = 'fetch' in window;
   
-  console.log('Push support check:', {
+  // Additional iOS-specific checks
+  const isStandalone = window.navigator.standalone;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isIOSChrome = /CriOS/.test(navigator.userAgent);
+  const isIOSFirefox = /FxiOS/.test(navigator.userAgent);
+  const isIOSSafari = isIOS && !isIOSChrome && !isIOSFirefox;
+  
+  console.log('Detailed push support check:', {
     hasServiceWorker,
     hasPushManager,
     hasNotification,
     hasFetch,
-    userAgent: navigator.userAgent
+    isStandalone,
+    isIOS,
+    isIOSChrome,
+    isIOSFirefox,
+    isIOSSafari,
+    userAgent: navigator.userAgent,
+    location: window.location.href
   });
   
-  return hasServiceWorker && hasPushManager && hasNotification && hasFetch;
+  // Log specific missing APIs
+  if (!hasServiceWorker) console.warn('Missing: serviceWorker API');
+  if (!hasPushManager) console.warn('Missing: PushManager API');
+  if (!hasNotification) console.warn('Missing: Notification API');
+  if (!hasFetch) console.warn('Missing: fetch API');
+  
+  // iOS Safari specific handling
+  if (isIOSSafari) {
+    console.log('iOS Safari detected - checking additional requirements');
+    
+    // iOS Safari requires the app to be added to home screen for push notifications
+    // OR to be in a secure context (HTTPS)
+    const isSecureContext = window.isSecureContext;
+    const isHTTPS = window.location.protocol === 'https:';
+    
+    console.log('iOS Safari context:', {
+      isSecureContext,
+      isHTTPS,
+      isStandalone
+    });
+    
+    // For iOS Safari, we need basic APIs AND secure context
+    const isSupported = hasServiceWorker && hasPushManager && hasNotification && hasFetch && isSecureContext;
+    
+    console.log('iOS Safari push support result:', isSupported);
+    return isSupported;
+  }
+  
+  const isSupported = hasServiceWorker && hasPushManager && hasNotification && hasFetch;
+  
+  console.log('Push support result:', isSupported);
+  return isSupported;
 };
 
 /**
