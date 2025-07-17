@@ -143,6 +143,40 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
 
   // If browser doesn't support push notifications, show message
   if (!pushSupported) {
+    // Check if this is iOS Safari with missing APIs
+    const isIOS = /iPad|iPhone|iPod/.test(debugInfo?.userAgent || '');
+    const isIOSSafari = isIOS && debugInfo?.hasServiceWorker && debugInfo?.isSecureContext;
+    const missingPushAPIs = !debugInfo?.hasPushManager || !debugInfo?.hasNotification;
+    
+    if (isIOSSafari && missingPushAPIs) {
+      return (
+        <div className="bg-blue-50 p-3 rounded border border-blue-200">
+          <p className="text-blue-800 text-sm font-medium">
+            📱 iOS Safari Push Notifications
+          </p>
+          <p className="text-blue-700 text-sm mt-1">
+            Your iPhone supports the app, but Safari doesn't have push notifications enabled yet.
+          </p>
+          
+          <div className="mt-3 p-2 bg-blue-100 rounded">
+            <p className="text-blue-800 text-xs font-medium mb-1">📲 To enable push notifications:</p>
+            <ol className="text-blue-700 text-xs space-y-1 list-decimal list-inside">
+              <li>Tap the Share button (□↗) in Safari</li>
+              <li>Select "Add to Home Screen"</li>
+              <li>Open the app from your home screen</li>
+              <li>Push notifications will then work!</li>
+            </ol>
+          </div>
+          
+          <div className="mt-2 p-2 bg-yellow-50 rounded border border-yellow-200">
+            <p className="text-yellow-700 text-xs">
+              <strong>Alternative:</strong> You can still use the app normally - it just won't send automatic push notifications. The app will still check for updates when you open it.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    
     return (
       <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
         <p className="text-yellow-800 text-sm">
@@ -151,21 +185,25 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
         <p className="text-yellow-700 text-xs mt-1">
           Note: iOS Safari requires iOS 16.4+ and macOS Safari requires macOS 13+
         </p>
-        {debugInfo && (
-          <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
-            <p className="font-medium mb-1">Debug Information:</p>
-            <div className="space-y-1">
-              <p>ServiceWorker: {debugInfo.hasServiceWorker ? '✅' : '❌'}</p>
-              <p>PushManager: {debugInfo.hasPushManager ? '✅' : '❌'}</p>
-              <p>Notification: {debugInfo.hasNotification ? '✅' : '❌'}</p>
-              <p>Fetch: {debugInfo.hasFetch ? '✅' : '❌'}</p>
-              <p>Secure Context: {debugInfo.isSecureContext ? '✅' : '❌'}</p>
-              <p>HTTPS: {debugInfo.isHTTPS ? '✅' : '❌'}</p>
-              <p>Standalone: {debugInfo.isStandalone ? 'Yes' : 'No'}</p>
-              <p className="break-all">UA: {debugInfo.userAgent.substring(0, 50)}...</p>
+        
+        <details className="mt-3">
+          <summary className="text-xs text-gray-600 cursor-pointer">Show Debug Information</summary>
+          {debugInfo && (
+            <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
+              <div className="space-y-1">
+                <p>ServiceWorker: {debugInfo.hasServiceWorker ? '✅' : '❌'}</p>
+                <p>PushManager: {debugInfo.hasPushManager ? '✅' : '❌'}</p>
+                <p>Notification: {debugInfo.hasNotification ? '✅' : '❌'}</p>
+                <p>Fetch: {debugInfo.hasFetch ? '✅' : '❌'}</p>
+                <p>Secure Context: {debugInfo.isSecureContext ? '✅' : '❌'}</p>
+                <p>HTTPS: {debugInfo.isHTTPS ? '✅' : '❌'}</p>
+                <p>Standalone: {debugInfo.isStandalone ? 'Yes' : 'No'}</p>
+                <p className="break-all">UA: {debugInfo.userAgent.substring(0, 50)}...</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </details>
+        
         {supportError && (
           <p className="text-red-700 text-xs mt-2 font-medium">
             Error: {supportError}
