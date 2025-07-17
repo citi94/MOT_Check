@@ -267,6 +267,9 @@ const App = () => {
                     <p className="text-xs text-blue-800">
                       <span className="font-medium">✅ Background monitoring active:</span> This device will receive push notifications for {currentReg} even when your browser is closed.
                     </p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      💡 Tip: Add this page to your home screen for the best experience.
+                    </p>
                   </div>
                 )}
               </div>

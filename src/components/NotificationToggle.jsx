@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   isPushSupported, 
+  isPushReady,
   isUserSubscribed, 
   subscribeToPush,
   subscribeToVehicleNotifications,
@@ -13,20 +14,41 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
   const [notificationPermission, setNotificationPermission] = useState('default');
   const [isLoading, setIsLoading] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
+  const [pushReady, setPushReady] = useState(false);
   const [deviceSubscribed, setDeviceSubscribed] = useState(false);
+  const [supportError, setSupportError] = useState(null);
 
   useEffect(() => {
     // Check if push notifications are supported
-    setPushSupported(isPushSupported());
+    const supported = isPushSupported();
+    setPushSupported(supported);
     
     // Check notification permission status
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
 
+    // Check if push is actually ready to use
+    if (supported) {
+      checkPushReadiness();
+    }
+
     // Check if this device is already subscribed to push notifications
     checkSubscriptionStatus();
   }, []);
+
+  const checkPushReadiness = async () => {
+    try {
+      const ready = await isPushReady();
+      setPushReady(ready);
+      if (!ready) {
+        setSupportError('Push notifications are not fully supported on this device');
+      }
+    } catch (error) {
+      console.error('Error checking push readiness:', error);
+      setSupportError('Unable to verify push notification support');
+    }
+  };
 
   const checkSubscriptionStatus = async () => {
     try {
@@ -115,6 +137,31 @@ const NotificationToggle = ({ registration, isEnabled, onToggle }) => {
         <p className="text-yellow-700 text-xs mt-1">
           Note: iOS Safari requires iOS 16.4+ and macOS Safari requires macOS 13+
         </p>
+        {supportError && (
+          <p className="text-red-700 text-xs mt-2 font-medium">
+            Debug: {supportError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // If push is supported but not ready, show different message
+  if (pushSupported && !pushReady) {
+    return (
+      <div className="bg-blue-50 p-3 rounded border border-blue-200">
+        <p className="text-blue-800 text-sm">
+          🔧 Setting up push notifications...
+        </p>
+        <p className="text-blue-700 text-xs mt-1">
+          This may take a moment as the service worker registers. Please refresh the page if this persists.
+        </p>
+        <button 
+          onClick={checkPushReadiness}
+          className="mt-2 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
+        >
+          Check Again
+        </button>
       </div>
     );
   }

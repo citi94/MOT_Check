@@ -34,10 +34,51 @@ function urlBase64ToUint8Array(base64String) {
  * Check if the browser supports push notifications
  */
 export const isPushSupported = () => {
-  return 'serviceWorker' in navigator && 
-         'PushManager' in window && 
-         'Notification' in window &&
-         'fetch' in window;
+  const hasServiceWorker = 'serviceWorker' in navigator;
+  const hasPushManager = 'PushManager' in window;
+  const hasNotification = 'Notification' in window;
+  const hasFetch = 'fetch' in window;
+  
+  console.log('Push support check:', {
+    hasServiceWorker,
+    hasPushManager,
+    hasNotification,
+    hasFetch,
+    userAgent: navigator.userAgent
+  });
+  
+  return hasServiceWorker && hasPushManager && hasNotification && hasFetch;
+};
+
+/**
+ * Check if push notifications are actually ready to use
+ */
+export const isPushReady = async () => {
+  if (!isPushSupported()) {
+    console.warn('Push not supported - basic APIs missing');
+    return false;
+  }
+  
+  try {
+    // Check if service worker is registered
+    const registration = await navigator.serviceWorker.ready;
+    console.log('Service worker ready:', registration.scope);
+    
+    // Check push manager
+    if (!registration.pushManager) {
+      console.warn('Push manager not available on registration');
+      return false;
+    }
+    
+    // Check notification permission
+    const permission = await Notification.requestPermission();
+    console.log('Notification permission:', permission);
+    
+    return permission === 'granted';
+  } catch (error) {
+    console.error('Error checking push readiness:', error);
+    return false;
+  }
 };
 
 /**
