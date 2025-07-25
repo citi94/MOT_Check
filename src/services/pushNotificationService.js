@@ -10,6 +10,10 @@ const VAPID_PUBLIC_KEY = process.env.REACT_APP_VAPID_PUBLIC_KEY;
 // Validate VAPID key is available
 if (!VAPID_PUBLIC_KEY) {
   console.error('REACT_APP_VAPID_PUBLIC_KEY environment variable is not set');
+  console.error('To fix this:');
+  console.error('1. Run: node scripts/generateVapidKeys.js');
+  console.error('2. Add REACT_APP_VAPID_PUBLIC_KEY=<public_key> to your .env file');
+  console.error('3. Add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to Netlify environment variables');
 }
 
 /**
@@ -165,7 +169,7 @@ export const subscribeToPush = async () => {
   }
 
   if (!VAPID_PUBLIC_KEY) {
-    throw new Error('VAPID public key is not configured');
+    throw new Error('VAPID public key is not configured. Please check your environment variables or contact the administrator.');
   }
 
   try {
