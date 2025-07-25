@@ -7,6 +7,14 @@
 // Get VAPID public key from environment variable
 const VAPID_PUBLIC_KEY = process.env.REACT_APP_VAPID_PUBLIC_KEY;
 
+// Debug logging for VAPID key availability
+console.log('VAPID key debug:', {
+  hasKey: !!VAPID_PUBLIC_KEY,
+  keyLength: VAPID_PUBLIC_KEY?.length,
+  keyPreview: VAPID_PUBLIC_KEY?.substring(0, 10) + '...',
+  allEnvVars: Object.keys(process.env).filter(key => key.includes('VAPID'))
+});
+
 // Validate VAPID key is available
 if (!VAPID_PUBLIC_KEY) {
   console.error('REACT_APP_VAPID_PUBLIC_KEY environment variable is not set');
